@@ -51,8 +51,8 @@ ready for TikTok, YouTube Shorts and Instagram Reels.
   - keyboard shortcuts: <kbd>Space</kbd> play, <kbd>I</kbd>/<kbd>O</kbd> in/out, <kbd>←</kbd>/<kbd>→</kbd> seek,
     <kbd>J</kbd>/<kbd>L</kbd> ±10s, <kbd>[</kbd>/<kbd>]</kbd> previous/next highlight
 - **Share links.** One click creates a private link to a finished clip that you can open on your phone to post, or send
-  to a friend. Links can be revoked.
-- **Download all.** Every finished clip of a session in one zip.
+  to a friend. Pasted into Discord, X or iMessage, the link shows a preview with the clip. Links can be revoked.
+- **Download all.** Every finished clip of a session in one zip, and a **My clips** page listing every clip you've made.
 - **Auto-export.** Tick it when uploading and the top 1-10 highlights render as soon as analysis finishes, in the format
   you last used. You get a desktop notification when a session is ready.
 
@@ -116,6 +116,7 @@ All settings are environment variables. Put them in `.env` (see [`.env.example`]
 | `CLIPWIZARD_WORKSPACE_QUOTA_GB` | `0` (unlimited) | Storage limit per workspace |
 | `CLIPWIZARD_RATE_LIMIT_PER_MIN` / `_PER_HOUR` | `20` / `200` | Jobs one IP can start (uploads, imports, renders, transcripts); 0 = off |
 | `CLIPWIZARD_TRUST_PROXY` | off | Set to `1` behind a reverse proxy so client IPs come from `X-Forwarded-For` |
+| `CLIPWIZARD_PUBLIC_URL` | from the request | Public address (e.g. `https://clips.example.com`) used in share-link previews |
 | `CLIPWIZARD_MAX_QUEUE` | `100` | When this many videos are waiting, new ones get a friendly "busy" message |
 | `CLIPWIZARD_FFMPEG_STALL_SECONDS` | `180` | Kill an ffmpeg job that makes no progress for this long |
 | `CLIPWIZARD_IMPORT_USE_PROXY` | off | Set to `1` if the server must reach the internet through an HTTP proxy |

@@ -58,7 +58,8 @@ class WorkspaceMiddleware(BaseHTTPMiddleware):
         path = request.url.path
         page_load = request.method == "GET" and "text/html" in request.headers.get("accept", "")
         scoped = path.startswith("/api/") or path.startswith("/media/")
-        if path in WORKSPACE_FREE or path.startswith("/api/share/") or not (scoped or page_load):
+        public = path in WORKSPACE_FREE or path.startswith(("/api/share/", "/s/", "/share/"))
+        if public or not (scoped or page_load):
             return await call_next(request)
         key = request.cookies.get(COOKIE)
         minted = None

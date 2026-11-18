@@ -512,6 +512,7 @@ def remove_video_files(video: dict[str, Any]) -> None:
     for c in db.list_clips(video["id"]):
         if c.get("filename"):
             (settings.clips_dir / c["filename"]).unlink(missing_ok=True)
+        (settings.clips_dir / f"{c['id']}.jpg").unlink(missing_ok=True)  # share poster
     shutil.rmtree(settings.work_dir / video["id"], ignore_errors=True)
 
 

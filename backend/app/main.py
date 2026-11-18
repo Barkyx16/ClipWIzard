@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import html
 import logging
 import os
 import re
@@ -17,7 +18,7 @@ from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.background import BackgroundTask
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -25,6 +26,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from . import db, jobs, pipeline, retention
 from .config import get_settings
 from .media import captions, ffmpeg, importer
+from .media.render import output_size
 from .ratelimit import RateLimitMiddleware
 from .workspace import (
     WorkspaceMiddleware,
@@ -1015,6 +1017,78 @@ def shared_download(token: str) -> FileResponse:
     return FileResponse(path, media_type="video/mp4", filename=f"clipwizard-{c['id']}.mp4", headers=NOINDEX)
 
 
+def _poster_path(clip_id: str) -> Path:
+    return get_settings().clips_dir / f"{clip_id}.jpg"
+
+
+@app.get("/share/{token}/poster.jpg", include_in_schema=False)
+def shared_poster(token: str) -> FileResponse:
+    """Preview image for link unfurls (Discord, X, iMessage...)."""
+    c, path = _shared_clip(token)
+    poster = _poster_path(c["id"])
+    if not poster.exists():
+        try:
+            ffmpeg.extract_frame(path, min(1.0, max(0.0, (c["end"] - c["start"]) / 3)), poster, width=720)
+        except ffmpeg.FFmpegError as e:
+            raise HTTPException(404, "No preview available") from e
+    return FileResponse(poster, media_type="image/jpeg", headers={**NOINDEX, "Cache-Control": "public, max-age=86400"})
+
+
+def _public_base(request: Request) -> str:
+    configured = os.environ.get("CLIPWIZARD_PUBLIC_URL", "").rstrip("/")
+    if configured:
+        return configured
+    scheme, host = request.url.scheme, request.headers.get("host", request.url.netloc)
+    if os.environ.get("CLIPWIZARD_TRUST_PROXY") == "1":
+        scheme = request.headers.get("x-forwarded-proto", scheme).split(",")[0].strip()
+        host = request.headers.get("x-forwarded-host", host).split(",")[0].strip()
+    return f"{scheme}://{host}"
+
+
+def _share_meta(request: Request, token: str) -> str:
+    """Open Graph / Twitter tags so a pasted share link shows the clip."""
+    try:
+        c, _ = _shared_clip(token)
+    except HTTPException:
+        return '<meta name="robots" content="noindex">'
+    info = shared_info(token, Response())
+    v = db.get_video(c["video_id"]) or {}
+    w, h = output_size(str((c.get("options") or {}).get("aspect", "vertical_blur")),
+                       int(v.get("width") or 1920), int(v.get("height") or 1080))
+    base = _public_base(request)
+    page, video, poster = f"{base}/s/{token}", f"{base}{info['video_url']}", f"{base}/share/{token}/poster.jpg"
+    desc = info["caption"] or "Clipped with ClipWizard"
+    tags = {
+        "og:site_name": "ClipWizard", "og:type": "video.other", "og:title": info["title"],
+        "og:description": desc, "og:url": page, "og:image": poster,
+        "og:video": video, "og:video:url": video, "og:video:type": "video/mp4",
+        "og:video:width": str(w), "og:video:height": str(h),
+    }
+    if base.startswith("https://"):
+        tags["og:video:secure_url"] = video
+    out = [f'<meta property="{k}" content="{html.escape(v, quote=True)}">' for k, v in tags.items()]
+    out += [
+        '<meta name="twitter:card" content="summary_large_image">',
+        f'<meta name="twitter:title" content="{html.escape(info["title"], quote=True)}">',
+        f'<meta name="twitter:image" content="{html.escape(poster, quote=True)}">',
+        '<meta name="robots" content="noindex">',
+    ]
+    return "\n".join(out)
+
+
+@app.get("/s/{token}", include_in_schema=False)
+def share_page(token: str, request: Request) -> HTMLResponse:
+    """The SPA's share page, with link-preview tags filled in on the server."""
+    index = _frontend / "index.html"
+    if index.exists():
+        doc = index.read_text(encoding="utf-8")
+    else:  # API-only deployments still get a working preview + link
+        doc = ('<!doctype html><html><head><meta charset="utf-8"><title>ClipWizard</title></head>'
+               f'<body><a href="/share/{html.escape(token)}/video.mp4">Watch the clip</a></body></html>')
+    return HTMLResponse(doc.replace("</head>", _share_meta(request, token) + "\n</head>", 1),
+                        headers={"Referrer-Policy": "no-referrer"})
+
+
 @app.delete("/api/clips/{clip_id}", status_code=204)
 def delete_clip(clip_id: str, ws: str = Workspace) -> None:
     c = _clip_or_404(clip_id, ws)
@@ -1022,6 +1096,7 @@ def delete_clip(clip_id: str, ws: str = Workspace) -> None:
         raise HTTPException(409, "Wait for the render to finish before deleting")
     if c.get("filename"):
         (get_settings().clips_dir / c["filename"]).unlink(missing_ok=True)
+    _poster_path(clip_id).unlink(missing_ok=True)
     db.delete_clip(clip_id)
 
 

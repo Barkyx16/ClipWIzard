@@ -569,3 +569,31 @@ def test_clips_library(client, demo_video):
     with TestClient(app) as stranger:
         assert all(c["video_id"] != vid for c in stranger.get("/api/clips").json())
     client.delete(f"/api/videos/{vid}")
+
+
+def test_share_link_previews(client, demo_video):
+    from app.main import app
+
+    vid = _upload(client, demo_video, max_clips=1).json()["id"]
+    video = _wait(client, f"/api/videos/{vid}")
+    h = video["highlights"][0]
+    client.patch(f"/api/highlights/{h['id']}", json={"title": 'Cops "lost" me <script>x</script>'})
+    r = client.post(f"/api/videos/{vid}/clips", json={
+        "highlight_id": h["id"], "start": h["start"], "end": h["start"] + 2, "quality": "fast"})
+    clip = _wait(client, f"/api/clips/{r.json()['id']}")
+    token = client.post(f"/api/clips/{clip['id']}/share").json()["share_url"].split("/")[-1]
+
+    with TestClient(app) as stranger:
+        page = stranger.get(f"/s/{token}", headers={"accept": "text/html"})
+        assert page.status_code == 200
+        body = page.text
+        assert f'<meta property="og:video" content="http://testserver/share/{token}/video.mp4">' in body
+        assert f'content="http://testserver/share/{token}/poster.jpg"' in body
+        assert 'content="1080"' in body and 'content="1920"' in body  # vertical clip size
+        assert "&lt;script&gt;" in body and "<script>x" not in body and "&quot;lost&quot;" in body
+        assert "set-cookie" not in page.headers  # viewers don't get a workspace
+        poster = stranger.get(f"/share/{token}/poster.jpg")
+        assert poster.status_code == 200 and poster.headers["content-type"] == "image/jpeg"
+        bogus = stranger.get("/s/nope-not-a-real-token-xyz", headers={"accept": "text/html"})
+        assert bogus.status_code == 200 and "og:video" not in bogus.text and "noindex" in bogus.text
+    client.delete(f"/api/videos/{vid}")
