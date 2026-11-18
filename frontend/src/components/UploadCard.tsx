@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Bot, FileVideo, Link2, Loader2, UploadCloud, X } from "lucide-react";
+import { Bot, FileVideo, Files, Link2, Loader2, UploadCloud, X } from "lucide-react";
 
 import { AnalyzeSettings, api, ApiError, ClipLength, Health, UploadHandle, uploadVideo } from "../api";
 import { formatBytes } from "../lib/format";
@@ -12,14 +12,20 @@ const LENGTHS: { value: ClipLength; label: string; hint: string }[] = [
   { value: "long", label: "Long", hint: "45–90s" },
 ];
 
-export default function UploadCard({ health }: { health: Health | null }) {
+const MAX_FILES = 10;
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+export default function UploadCard({ health, onUploaded }: { health: Health | null; onUploaded?: () => void }) {
   const navigate = useNavigate();
   const inputRef = useRef<HTMLInputElement>(null);
   const handleRef = useRef<UploadHandle | null>(null);
   const [mode, setMode] = useState<"file" | "link">("file");
   const [link, setLink] = useState("");
   const [importing, setImporting] = useState(false);
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
+  const [current, setCurrent] = useState<{ index: number; total: number } | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const cancelled = useRef(false);
   const [dragging, setDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState<{
@@ -40,59 +46,106 @@ export default function UploadCard({ health }: { health: Health | null }) {
   const accept = (health?.allowed_extensions ?? [".mp4", ".mov", ".mkv", ".webm"]).join(",");
 
   const pick = useCallback(
-    (f: File | undefined) => {
-      if (!f) return;
+    (list: FileList | null | undefined) => {
+      if (!list?.length) return;
       setError(null);
-      const ext = "." + (f.name.split(".").pop() ?? "").toLowerCase();
-      if (health && !health.allowed_extensions.includes(ext)) {
-        setError(`That file type isn't supported. Try ${health.allowed_extensions.join(", ")}.`);
-        return;
+      setNotice(null);
+      const ok: File[] = [];
+      const problems: string[] = [];
+      for (const f of Array.from(list).slice(0, MAX_FILES)) {
+        const ext = "." + (f.name.split(".").pop() ?? "").toLowerCase();
+        if (health && !health.allowed_extensions.includes(ext)) {
+          problems.push(`${f.name}: file type not supported (try ${health.allowed_extensions.join(", ")})`);
+        } else if (health && f.size > health.max_upload_mb * 1024 * 1024) {
+          problems.push(`${f.name}: over the ${formatBytes(health.max_upload_mb * 1024 * 1024)} limit`);
+        } else {
+          ok.push(f);
+        }
       }
-      if (health && f.size > health.max_upload_mb * 1024 * 1024) {
-        setError(`That file is over the ${formatBytes(health.max_upload_mb * 1024 * 1024)} limit.`);
-        return;
-      }
-      setFile(f);
+      if (list.length > MAX_FILES) problems.push(`Only the first ${MAX_FILES} files were added`);
+      if (problems.length) setError(problems.join(". ") + ".");
+      if (ok.length) setFiles(ok);
     },
     [health],
   );
 
-  const start = async () => {
-    if (!file) return;
-    setError(null);
-    setProgress({ loaded: 0, total: file.size, started: performance.now(), base: null });
-    setUploadStatus(null);
-    const handle = uploadVideo(
-      file,
-      { ...settings, use_ai: settings.use_ai && aiAvailable },
-      {
-        // `base` is where this attempt started, so resumed uploads report a real speed.
-        onProgress: (loaded, total) =>
-          setProgress((p) =>
-            p
-              ? p.base === null
-                ? { ...p, loaded, total, base: loaded, started: performance.now() }
-                : { ...p, loaded, total }
-              : p,
-          ),
-        onStatus: setUploadStatus,
-      },
-    );
-    handleRef.current = handle;
-    try {
-      const video = await handle.promise;
-      navigate(`/videos/${video.id}`);
-    } catch (e) {
-      const cancelled = e instanceof ApiError && e.status === -1;
-      setError(
-        cancelled
-          ? null
-          : `${e instanceof Error ? e.message : "Upload failed"}. Pick the same file again to resume where it stopped.`,
+  /** Uploads one file; waits and retries while the workspace is at its processing limit. */
+  const uploadOne = async (file: File) => {
+    for (;;) {
+      setProgress({ loaded: 0, total: file.size, started: performance.now(), base: null });
+      setUploadStatus(null);
+      const handle = uploadVideo(
+        file,
+        { ...settings, use_ai: settings.use_ai && aiAvailable },
+        {
+          // `base` is where this attempt started, so resumed uploads report a real speed.
+          onProgress: (loaded, total) =>
+            setProgress((p) =>
+              p
+                ? p.base === null
+                  ? { ...p, loaded, total, base: loaded, started: performance.now() }
+                  : { ...p, loaded, total }
+                : p,
+            ),
+          onStatus: setUploadStatus,
+        },
       );
+      handleRef.current = handle;
+      try {
+        return await handle.promise;
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 429 && !cancelled.current) {
+          setProgress({ loaded: 0, total: file.size, started: performance.now(), base: 0 });
+          setUploadStatus("Waiting for your earlier videos to finish analysing…");
+          await sleep(10_000);
+          if (cancelled.current) throw new ApiError(-1, "Upload cancelled");
+          continue;
+        }
+        throw e;
+      } finally {
+        handleRef.current = null;
+      }
+    }
+  };
+
+  const start = async () => {
+    if (!files.length) return;
+    setError(null);
+    setNotice(null);
+    cancelled.current = false;
+    const done: string[] = [];
+    try {
+      for (let i = 0; i < files.length; i++) {
+        setCurrent({ index: i, total: files.length });
+        const video = await uploadOne(files[i]);
+        done.push(video.id);
+      }
+      if (done.length === 1) {
+        navigate(`/videos/${done[0]}`);
+        return;
+      }
+      setNotice(`Uploaded ${done.length} recordings. They're being analysed in Your sessions below.`);
+      setFiles([]);
+      onUploaded?.();
+    } catch (e) {
+      const wasCancelled = e instanceof ApiError && e.status === -1;
+      const name = files[done.length]?.name;
+      setError(
+        wasCancelled
+          ? done.length
+            ? `Stopped after ${done.length} of ${files.length} files.`
+            : null
+          : `${name ? `${name}: ` : ""}${e instanceof Error ? e.message : "Upload failed"}. ` +
+              "Pick the same file again to resume where it stopped.",
+      );
+      if (done.length) {
+        setFiles(files.slice(done.length));
+        onUploaded?.();
+      }
+    } finally {
       setProgress(null);
       setUploadStatus(null);
-    } finally {
-      handleRef.current = null;
+      setCurrent(null);
     }
   };
 
@@ -174,7 +227,7 @@ export default function UploadCard({ health }: { health: Health | null }) {
           onDrop={(e) => {
             e.preventDefault();
             setDragging(false);
-            if (!uploading) pick(e.dataTransfer.files[0]);
+            if (!uploading) pick(e.dataTransfer.files);
           }}
           onClick={() => !uploading && inputRef.current?.click()}
           onKeyDown={(e) => {
@@ -190,19 +243,38 @@ export default function UploadCard({ health }: { health: Health | null }) {
             ref={inputRef}
             type="file"
             accept={`video/*,${accept}`}
+            multiple
             className="hidden"
-            onChange={(e) => pick(e.target.files?.[0])}
+            onChange={(e) => {
+              pick(e.target.files);
+              e.target.value = "";
+            }}
           />
-          {file ? (
+          {files.length === 1 ? (
             <>
               <FileVideo className="mb-3 h-10 w-10 text-accent" />
-              <p className="max-w-full truncate font-semibold">{file.name}</p>
-              <p className="mt-1 text-sm text-muted">{formatBytes(file.size)} · click to change</p>
+              <p className="max-w-full truncate font-semibold">{files[0].name}</p>
+              <p className="mt-1 text-sm text-muted">{formatBytes(files[0].size)} · click to change</p>
+            </>
+          ) : files.length > 1 ? (
+            <>
+              <Files className="mb-3 h-10 w-10 text-accent" />
+              <p className="font-semibold">{files.length} recordings</p>
+              <p className="mt-1 max-w-full truncate text-sm text-muted">
+                {files
+                  .slice(0, 3)
+                  .map((f) => f.name)
+                  .join(", ")}
+                {files.length > 3 ? ` +${files.length - 3} more` : ""}
+              </p>
+              <p className="mt-1 text-xs text-dim">
+                {formatBytes(files.reduce((n, f) => n + f.size, 0))} total · click to change
+              </p>
             </>
           ) : (
             <>
               <UploadCloud className="mb-3 h-10 w-10 text-primary" />
-              <p className="font-semibold">Drop your gameplay recording here</p>
+              <p className="font-semibold">Drop your gameplay recordings here</p>
               <p className="mt-1 text-sm text-muted">MP4, MOV, MKV or WebM · streams and long sessions welcome</p>
             </>
           )}
@@ -300,6 +372,11 @@ export default function UploadCard({ health }: { health: Health | null }) {
           {error}
         </p>
       )}
+      {notice && (
+        <p className="mt-4 rounded-lg border border-good/40 bg-good/10 px-3 py-2 text-sm text-good" role="status">
+          {notice}
+        </p>
+      )}
 
       {importing ? (
         <p className="mt-5 flex items-center justify-center gap-2 text-sm text-muted">
@@ -313,17 +390,21 @@ export default function UploadCard({ health }: { health: Health | null }) {
               <Loader2 className="h-4 w-4 animate-spin" />
               {processing
                 ? "Checking the file…"
-                : (uploadStatus ??
-                  `Uploading ${formatBytes(progress.loaded)} of ${formatBytes(progress.total)}${
-                    speed ? ` · ${formatBytes(speed)}/s` : ""
-                  }`)}
+                : (current && current.total > 1 ? `File ${current.index + 1} of ${current.total} · ` : "") +
+                  (uploadStatus ??
+                    `Uploading ${formatBytes(progress.loaded)} of ${formatBytes(progress.total)}${
+                      speed ? ` · ${formatBytes(speed)}/s` : ""
+                    }`)}
             </span>
             {!processing && (
               <button
                 type="button"
                 className="btn-icon"
                 aria-label="Cancel upload"
-                onClick={() => handleRef.current?.abort()}
+                onClick={() => {
+                  cancelled.current = true;
+                  handleRef.current?.abort();
+                }}
               >
                 <X className="h-4 w-4" />
               </button>
@@ -334,7 +415,7 @@ export default function UploadCard({ health }: { health: Health | null }) {
         <button
           type="button"
           className="btn-primary mt-5 w-full py-3 text-base"
-          disabled={mode === "file" ? !file : link.trim().length < 8}
+          disabled={mode === "file" ? !files.length : link.trim().length < 8}
           onClick={mode === "file" ? start : startImport}
         >
           {mode === "file" ? <UploadCloud className="h-5 w-5" /> : <Link2 className="h-5 w-5" />} Find my highlights

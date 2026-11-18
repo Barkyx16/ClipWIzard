@@ -89,7 +89,7 @@ export default function HomePage() {
             ))}
           </ol>
         </div>
-        <UploadCard health={health} />
+        <UploadCard health={health} onUploaded={load} />
       </section>
 
       <section aria-labelledby="projects-heading">

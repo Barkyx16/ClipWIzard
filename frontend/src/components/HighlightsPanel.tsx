@@ -29,6 +29,11 @@ export default function HighlightsPanel({ highlights, selectedId, onSelect, onEx
   const [order, setOrder] = useState<MontageOrder>("timeline");
   const [transition, setTransition] = useState<Transition>("fade");
   const [busy, setBusy] = useState(false);
+  const [sortBy, setSortBy] = useState<"best" | "time">("best");
+  const shown = useMemo(
+    () => (sortBy === "best" ? highlights : [...highlights].sort((a, b) => a.start - b.start)),
+    [highlights, sortBy],
+  );
 
   const total = useMemo(
     () =>
@@ -91,7 +96,28 @@ export default function HighlightsPanel({ highlights, selectedId, onSelect, onEx
         </p>
       ) : (
         <div className="max-h-[420px] space-y-2 overflow-y-auto pr-1">
-          {highlights.map((h) =>
+          {highlights.length > 2 && (
+            <div className="flex justify-end gap-1 text-[11px]" role="radiogroup" aria-label="Sort highlights">
+              {(
+                [
+                  ["best", "Best first"],
+                  ["time", "Timeline"],
+                ] as const
+              ).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  role="radio"
+                  aria-checked={sortBy === value}
+                  onClick={() => setSortBy(value)}
+                  className={`rounded-md px-2 py-0.5 ${sortBy === value ? "bg-surface-2 text-ink" : "text-muted hover:text-ink"}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
+          {shown.map((h) =>
             picking ? (
               <HighlightCard
                 key={h.id}
