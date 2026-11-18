@@ -45,3 +45,19 @@ test("unknown pages show a not-found message", async ({ page }) => {
   await page.goto("/definitely/not/here");
   await expect(page.getByText("That page doesn't exist.")).toBeVisible();
 });
+
+test("timeline handles trim the clip by dragging or with arrow keys", async ({ page }) => {
+  await uploadDemo(page);
+  const strip = (await page.getByLabel("Video timeline").boundingBox())!;
+  const end = (await page.getByLabel("Clip end").boundingBox())!;
+  await page.mouse.move(end.x + end.width / 2, end.y + end.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(strip.x + strip.width * (40 / 90), end.y + end.height / 2, { steps: 8 });
+  await page.mouse.up();
+  await expect(page.getByLabel("End", { exact: true })).toHaveValue("0:40.0");
+
+  await page.getByLabel("Clip start").focus();
+  await page.keyboard.press("Shift+ArrowLeft");
+  await page.keyboard.press("Shift+ArrowLeft");
+  await expect(page.getByLabel("Start", { exact: true })).toHaveValue("0:19.0");
+});

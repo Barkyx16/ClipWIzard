@@ -3,6 +3,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Highlight, Timeline as TimelineData } from "../api";
 import { formatTime } from "../lib/format";
 
+type Range = { start: number; end: number };
+
 interface Props {
   data: TimelineData | null;
   duration: number;
@@ -12,6 +14,8 @@ interface Props {
   range: { start: number; end: number } | null;
   onSeek: (t: number) => void;
   onSelect: (h: Highlight) => void;
+  /** Drag handles on the clip range call this with an updater (applied to the latest range). */
+  onRangeChange?: (update: (range: Range) => Range) => void;
 }
 
 const H = 80;
@@ -25,8 +29,15 @@ export default function Timeline({
   range,
   onSeek,
   onSelect,
+  onRangeChange,
 }: Props) {
   const ref = useRef<HTMLDivElement>(null);
+  const dragging = useRef<"start" | "end" | null>(null);
+  const timeAt = (clientX: number) => {
+    const rect = ref.current?.getBoundingClientRect();
+    if (!rect) return 0;
+    return Math.min(Math.max((clientX - rect.left) / rect.width, 0), 1) * duration;
+  };
   const [hover, setHover] = useState<{ x: number; t: number } | null>(null);
   const sprites = data?.sprites ?? null;
 
@@ -154,7 +165,56 @@ export default function Timeline({
           <div
             className="pointer-events-none absolute top-0 h-full border-2 border-accent"
             style={{ left: x(range.start), width: `calc(${x(range.end)} - ${x(range.start)})` }}
-          />
+          >
+            {onRangeChange &&
+              (["start", "end"] as const).map((edge) => (
+                <span
+                  key={edge}
+                  role="slider"
+                  tabIndex={0}
+                  aria-label={edge === "start" ? "Clip start" : "Clip end"}
+                  aria-valuemin={0}
+                  aria-valuemax={Math.round(duration)}
+                  aria-valuenow={Math.round(range[edge])}
+                  title="Drag to trim"
+                  className={`pointer-events-auto absolute top-0 flex h-full w-3 cursor-ew-resize items-center justify-center bg-accent/80 ${
+                    edge === "start" ? "-left-1.5 rounded-l" : "-right-1.5 rounded-r"
+                  }`}
+                  onClick={(e) => e.stopPropagation()}
+                  onPointerDown={(e) => {
+                    e.stopPropagation();
+                    e.currentTarget.setPointerCapture(e.pointerId);
+                    dragging.current = edge;
+                  }}
+                  onPointerMove={(e) => {
+                    if (dragging.current !== edge) return;
+                    const t = timeAt(e.clientX);
+                    onRangeChange((r) =>
+                      edge === "start"
+                        ? { start: Math.min(t, r.end - 1), end: r.end }
+                        : { start: r.start, end: Math.max(t, r.start + 1) },
+                    );
+                    onSeek(t);
+                  }}
+                  onPointerUp={() => (dragging.current = null)}
+                  onKeyDown={(e) => {
+                    const step = e.shiftKey ? 1 : 0.1;
+                    const d = e.key === "ArrowLeft" ? -step : e.key === "ArrowRight" ? step : 0;
+                    if (!d) return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onRangeChange((r) => {
+                      const t = Math.min(Math.max(r[edge] + d, 0), duration);
+                      return edge === "start"
+                        ? { start: Math.min(t, r.end - 1), end: r.end }
+                        : { start: r.start, end: Math.max(t, r.start + 1) };
+                    });
+                  }}
+                >
+                  <span className="h-6 w-0.5 rounded bg-bg/70" />
+                </span>
+              ))}
+          </div>
         )}
 
         <div

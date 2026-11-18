@@ -644,6 +644,12 @@ export default function ProjectPage() {
               range={{ start: editor.start, end: editor.end }}
               onSeek={seek}
               onSelect={(h) => select(h)}
+              onRangeChange={(update) =>
+                setEditor((s) => {
+                  const r = update({ start: s.start, end: s.end });
+                  return { ...s, start: Math.round(r.start * 10) / 10, end: Math.round(r.end * 10) / 10 };
+                })
+              }
             />
           </div>
 
