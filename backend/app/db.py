@@ -462,6 +462,19 @@ def delete_clip(clip_id: str) -> None:
         conn.execute("DELETE FROM clips WHERE id = ?", (clip_id,))
 
 
+def workspace_clips(workspace: str, limit: int = 200) -> list[dict[str, Any]]:
+    """Finished clips across every session of a workspace, newest first."""
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT c.*, v.original_name AS video_name, h.title AS highlight_title "
+            "FROM clips c JOIN videos v ON v.id = c.video_id "
+            "LEFT JOIN highlights h ON h.id = c.highlight_id "
+            "WHERE v.workspace = ? AND c.status = 'done' ORDER BY c.created_at DESC LIMIT ?",
+            (workspace, limit),
+        ).fetchall()
+    return [_row(r) for r in rows]  # type: ignore[misc]
+
+
 def clips_with_status(*statuses: str) -> list[dict[str, Any]]:
     marks = ", ".join("?" for _ in statuses)
     with connect() as conn:

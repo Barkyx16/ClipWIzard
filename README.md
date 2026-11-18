@@ -53,6 +53,8 @@ ready for TikTok, YouTube Shorts and Instagram Reels.
 - **Share links.** One click creates a private link to a finished clip that you can open on your phone to post, or send
   to a friend. Links can be revoked.
 - **Download all.** Every finished clip of a session in one zip.
+- **Auto-export.** Tick it when uploading and the top 1-10 highlights render as soon as analysis finishes, in the format
+  you last used. You get a desktop notification when a session is ready.
 
 **Privacy**
 - **Private workspaces.** Each browser gets its own anonymous workspace, and visitors only see their own uploads,

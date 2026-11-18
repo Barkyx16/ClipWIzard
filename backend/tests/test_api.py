@@ -551,3 +551,21 @@ def test_workspace_cookie_minted_on_page_load_not_health():
         assert "set-cookie" not in fresh.get("/api/videos").headers
         key = fresh.get("/api/workspace").json()["key"]
         assert fresh.cookies.get("cw_ws") == key
+
+
+def test_clips_library(client, demo_video):
+    from app.main import app
+
+    vid = _upload(client, demo_video, max_clips=1).json()["id"]
+    video = _wait(client, f"/api/videos/{vid}")
+    h = video["highlights"][0]
+    r = client.post(f"/api/videos/{vid}/clips", json={
+        "highlight_id": h["id"], "start": h["start"], "end": h["start"] + 2, "quality": "fast"})
+    _wait(client, f"/api/clips/{r.json()['id']}")
+    lib = client.get("/api/clips").json()
+    mine = [c for c in lib if c["video_id"] == vid]
+    assert len(mine) == 1 and mine[0]["title"] == h["title"] and mine[0]["video_name"] == "my gta6 session.mp4"
+    assert mine[0]["download_url"]
+    with TestClient(app) as stranger:
+        assert all(c["video_id"] != vid for c in stranger.get("/api/clips").json())
+    client.delete(f"/api/videos/{vid}")

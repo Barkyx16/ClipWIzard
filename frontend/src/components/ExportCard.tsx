@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { AlertTriangle, Check, Download, Link2, Link2Off, Loader2, Trash2 } from "lucide-react";
 
 import { api, Clip } from "../api";
@@ -19,11 +20,14 @@ export default function ExportCard({
   title,
   onDelete,
   onChange,
+  source,
 }: {
   clip: Clip;
   title: string;
   onDelete: (c: Clip) => void;
   onChange: (c: Clip) => void;
+  /** Where the clip came from (shown in the clips library). */
+  source?: { name: string; href: string };
 }) {
   const [sharing, setSharing] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -76,6 +80,11 @@ export default function ExportCard({
         <p className="line-clamp-2 text-sm font-semibold" title={title}>
           {title}
         </p>
+        {source && (
+          <Link to={source.href} className="truncate text-xs text-accent hover:underline" title={source.name}>
+            from {source.name}
+          </Link>
+        )}
         <p className="text-xs text-muted">
           {ASPECT_LABEL[clip.options.aspect]} ·{" "}
           {clip.options.kind === "montage"

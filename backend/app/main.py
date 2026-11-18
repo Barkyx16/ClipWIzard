@@ -911,6 +911,18 @@ def download_all_clips(video_id: str, ws: str = Workspace) -> FileResponse:
                         background=BackgroundTask(tmp.unlink, missing_ok=True))
 
 
+@app.get("/api/clips")
+def library(ws: str = Workspace) -> list[dict[str, Any]]:
+    """Every finished clip in this workspace, newest first (the clips library)."""
+    out = []
+    for c in db.workspace_clips(ws):
+        o = c.get("options") or {}
+        title = (f"Montage: {len(o.get('segments') or [])} moments" if o.get("kind") == "montage"
+                 else c.get("highlight_title") or o.get("title") or "Custom clip")
+        out.append({**clip_out(c), "title": title, "video_name": c["video_name"]})
+    return out
+
+
 @app.get("/api/clips/{clip_id}")
 def get_clip(clip_id: str, ws: str = Workspace) -> dict[str, Any]:
     return clip_out(_clip_or_404(clip_id, ws))

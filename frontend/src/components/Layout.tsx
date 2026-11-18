@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, Outlet } from "react-router-dom";
-import { KeyRound, Sparkles } from "lucide-react";
+import { Clapperboard, KeyRound, Sparkles } from "lucide-react";
 
 import WorkspaceDialog from "./WorkspaceDialog";
 
@@ -10,18 +10,26 @@ export default function Layout() {
     <div className="flex min-h-screen flex-col">
       <header className="sticky top-0 z-30 border-b border-line/70 bg-bg/80 backdrop-blur">
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6">
-          <Link to="/" className="flex items-center gap-2.5" aria-label="ClipWizard home">
+          <Link to="/" className="flex shrink-0 items-center gap-2.5" aria-label="ClipWizard home">
             <img src="/favicon.svg" alt="" className="h-8 w-8" />
             <span className="font-display text-3xl leading-none tracking-wide">
               Clip<span className="text-gradient">Wizard</span>
             </span>
           </Link>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3">
             <span className="hidden items-center gap-1.5 rounded-full border border-line px-3 py-1 text-xs text-muted md:inline-flex">
               <Sparkles className="h-3.5 w-3.5 text-accent" /> AI clipping for GTA 6 creators
             </span>
-            <button type="button" className="btn-ghost px-3 py-1.5 text-xs" onClick={() => setWorkspaceOpen(true)}>
-              <KeyRound className="h-4 w-4" /> Workspace
+            <Link to="/clips" className="btn-ghost px-3 py-1.5 text-xs" aria-label="My clips">
+              <Clapperboard className="h-4 w-4" /> <span className="hidden sm:inline">My clips</span>
+            </Link>
+            <button
+              type="button"
+              className="btn-ghost px-3 py-1.5 text-xs"
+              onClick={() => setWorkspaceOpen(true)}
+              aria-label="Workspace"
+            >
+              <KeyRound className="h-4 w-4" /> <span className="hidden sm:inline">Workspace</span>
             </button>
           </div>
         </div>

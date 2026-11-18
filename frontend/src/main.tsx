@@ -8,6 +8,7 @@ import { BrowserRouter, Route, Routes } from "react-router-dom";
 
 import Layout from "./components/Layout";
 import HomePage from "./pages/HomePage";
+import LibraryPage from "./pages/LibraryPage";
 import ProjectPage from "./pages/ProjectPage";
 import SharePage from "./pages/SharePage";
 
@@ -20,6 +21,7 @@ const render = () =>
           <Route element={<Layout />}>
             <Route index element={<HomePage />} />
             <Route path="/videos/:id" element={<ProjectPage />} />
+            <Route path="/clips" element={<LibraryPage />} />
             <Route
               path="*"
               element={

@@ -106,6 +106,11 @@ export interface Transcript {
   error: string | null;
 }
 
+export interface LibraryClip extends Clip {
+  title: string;
+  video_name: string;
+}
+
 export interface SharedClip {
   title: string;
   caption: string | null;
@@ -255,6 +260,7 @@ export const api = {
     },
   ) => request<Clip>(`/api/videos/${videoId}/montage`, { method: "POST", body: JSON.stringify(body) }),
   deleteClip: (id: string) => request<void>(`/api/clips/${id}`, { method: "DELETE" }),
+  library: () => request<LibraryClip[]>("/api/clips"),
   shareClip: (id: string) => request<Clip>(`/api/clips/${id}/share`, { method: "POST" }),
   unshareClip: (id: string) => request<Clip>(`/api/clips/${id}/share`, { method: "DELETE" }),
   shared: (token: string) => request<SharedClip>(`/api/share/${token}`),
