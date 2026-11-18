@@ -9,7 +9,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -18,6 +18,14 @@ from pydantic import BaseModel, Field, model_validator
 from . import db, jobs, pipeline
 from .config import get_settings
 from .media import ffmpeg
+from .workspace import (
+    WorkspaceMiddleware,
+    current_workspace,
+    same_workspace,
+    set_cookie,
+    valid_key,
+    workspace_id,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("clipwizard")
@@ -38,7 +46,9 @@ async def lifespan(_: FastAPI):
     jobs.shutdown()
 
 
-app = FastAPI(title="ClipWizard", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="ClipWizard", version="0.2.0", lifespan=lifespan)
+app.add_middleware(WorkspaceMiddleware)
+Workspace = Depends(current_workspace)
 
 _cors = os.environ.get("CLIPWIZARD_CORS_ORIGINS")
 if _cors:
@@ -84,6 +94,10 @@ class ExportAll(BaseModel):
     title_overlay: bool = True
     top: int = Field(5, ge=1, le=30)
     quality: Literal["high", "fast"] = "high"
+
+
+class WorkspaceSwitch(BaseModel):
+    key: str = Field(min_length=32, max_length=64)
 
 
 class HighlightPatch(BaseModel):
@@ -164,11 +178,31 @@ def clip_out(c: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _video_or_404(video_id: str) -> dict[str, Any]:
+def _video_or_404(video_id: str, ws: str) -> dict[str, Any]:
     v = db.get_video(video_id)
-    if v is None:
+    if v is None or not same_workspace(v.get("workspace"), ws):
         raise HTTPException(404, "Video not found")
     return v
+
+
+def _clip_or_404(clip_id: str, ws: str) -> dict[str, Any]:
+    c = db.get_clip(clip_id)
+    if c is None:
+        raise HTTPException(404, "Clip not found")
+    v = db.get_video(c["video_id"])
+    if v is None or not same_workspace(v.get("workspace"), ws):
+        raise HTTPException(404, "Clip not found")
+    return c
+
+
+def _highlight_or_404(highlight_id: str, ws: str) -> dict[str, Any]:
+    h = db.get_highlight(highlight_id)
+    if h is None:
+        raise HTTPException(404, "Highlight not found")
+    v = db.get_video(h["video_id"])
+    if v is None or not same_workspace(v.get("workspace"), ws):
+        raise HTTPException(404, "Highlight not found")
+    return h
 
 
 # ------------------------------------------------------------------ routes
@@ -186,9 +220,24 @@ def health() -> dict[str, Any]:
     }
 
 
+@app.get("/api/workspace")
+def get_workspace(request: Request) -> dict[str, str]:
+    """The caller's workspace key, so they can open it on another device."""
+    return {"key": request.state.workspace_key}
+
+
+@app.post("/api/workspace")
+def switch_workspace(body: WorkspaceSwitch, request: Request, response: Response) -> dict[str, Any]:
+    if not valid_key(body.key):
+        raise HTTPException(422, "That doesn't look like a workspace key")
+    request.state.workspace_switched = True
+    set_cookie(request, response, body.key)
+    return {"ok": True, "videos": len(db.list_videos(workspace_id(body.key)))}
+
+
 @app.get("/api/videos")
-def list_videos() -> list[dict[str, Any]]:
-    return [video_out(v) for v in db.list_videos()]
+def list_videos(ws: str = Workspace) -> list[dict[str, Any]]:
+    return [video_out(v) for v in db.list_videos(ws)]
 
 
 @app.post("/api/videos", status_code=201)
@@ -199,6 +248,7 @@ async def upload_video(
     max_clips: int = Query(12, ge=1, le=30),
     sensitivity: float = Query(0.5, ge=0.0, le=1.0),
     use_ai: bool = True,
+    ws: str = Workspace,
 ) -> dict[str, Any]:
     """Upload a recording as the raw request body (streamed straight to disk)."""
     s = get_settings()
@@ -239,20 +289,20 @@ async def upload_video(
         id=video_id, original_name=clean_name, filename=stored, size_bytes=size,
         duration=info.duration, width=info.width, height=info.height, fps=info.fps,
         has_audio=info.has_audio, status="queued", stage="Queued", progress=0.0,
-        settings=settings.model_dump(),
+        settings=settings.model_dump(), workspace=ws,
     )
     jobs.submit(pipeline.analyze_video, video_id)
     return video_out(v, include_children=True)
 
 
 @app.get("/api/videos/{video_id}")
-def get_video(video_id: str) -> dict[str, Any]:
-    return video_out(_video_or_404(video_id), include_children=True)
+def get_video(video_id: str, ws: str = Workspace) -> dict[str, Any]:
+    return video_out(_video_or_404(video_id, ws), include_children=True)
 
 
 @app.get("/api/videos/{video_id}/timeline")
-def get_timeline(video_id: str) -> dict[str, Any]:
-    _video_or_404(video_id)
+def get_timeline(video_id: str, ws: str = Workspace) -> dict[str, Any]:
+    _video_or_404(video_id, ws)
     t = db.get_timeline(video_id)
     if t is None:
         return {"hop": 1.0, "excitement": [], "audio": [], "motion": []}
@@ -260,8 +310,8 @@ def get_timeline(video_id: str) -> dict[str, Any]:
 
 
 @app.post("/api/videos/{video_id}/reanalyze")
-def reanalyze(video_id: str, body: AnalyzeSettings) -> dict[str, Any]:
-    v = _video_or_404(video_id)
+def reanalyze(video_id: str, body: AnalyzeSettings, ws: str = Workspace) -> dict[str, Any]:
+    v = _video_or_404(video_id, ws)
     if v["status"] in ("queued", "analyzing"):
         raise HTTPException(409, "This video is already being analysed")
     db.update_video(video_id, settings=body.model_dump(), status="queued", stage="Queued",
@@ -271,8 +321,8 @@ def reanalyze(video_id: str, body: AnalyzeSettings) -> dict[str, Any]:
 
 
 @app.delete("/api/videos/{video_id}", status_code=204)
-def delete_video(video_id: str) -> None:
-    v = _video_or_404(video_id)
+def delete_video(video_id: str, ws: str = Workspace) -> None:
+    v = _video_or_404(video_id, ws)
     if v["status"] in ("queued", "analyzing"):
         raise HTTPException(409, "Wait for analysis to finish before deleting")
     pipeline.remove_video_files(v)
@@ -280,10 +330,8 @@ def delete_video(video_id: str) -> None:
 
 
 @app.patch("/api/highlights/{highlight_id}")
-def patch_highlight(highlight_id: str, body: HighlightPatch) -> dict[str, Any]:
-    h = db.get_highlight(highlight_id)
-    if h is None:
-        raise HTTPException(404, "Highlight not found")
+def patch_highlight(highlight_id: str, body: HighlightPatch, ws: str = Workspace) -> dict[str, Any]:
+    h = _highlight_or_404(highlight_id, ws)
     changes = body.model_dump(exclude_none=True)
     start, end = changes.get("start", h["start"]), changes.get("end", h["end"])
     if end <= start + 0.5:
@@ -312,13 +360,13 @@ def _queue_clip(v: dict[str, Any], body: ClipCreate) -> dict[str, Any]:
 
 
 @app.post("/api/videos/{video_id}/clips", status_code=201)
-def create_clip(video_id: str, body: ClipCreate) -> dict[str, Any]:
-    return _queue_clip(_video_or_404(video_id), body)
+def create_clip(video_id: str, body: ClipCreate, ws: str = Workspace) -> dict[str, Any]:
+    return _queue_clip(_video_or_404(video_id, ws), body)
 
 
 @app.post("/api/videos/{video_id}/export-all", status_code=201)
-def export_all(video_id: str, body: ExportAll) -> list[dict[str, Any]]:
-    v = _video_or_404(video_id)
+def export_all(video_id: str, body: ExportAll, ws: str = Workspace) -> list[dict[str, Any]]:
+    v = _video_or_404(video_id, ws)
     if v["status"] != "ready":
         raise HTTPException(409, "Video analysis has not finished yet")
     out = []
@@ -331,23 +379,20 @@ def export_all(video_id: str, body: ExportAll) -> list[dict[str, Any]]:
 
 
 @app.get("/api/videos/{video_id}/clips")
-def list_clips(video_id: str) -> list[dict[str, Any]]:
-    _video_or_404(video_id)
+def list_clips(video_id: str, ws: str = Workspace) -> list[dict[str, Any]]:
+    _video_or_404(video_id, ws)
     return [clip_out(c) for c in db.list_clips(video_id)]
 
 
 @app.get("/api/clips/{clip_id}")
-def get_clip(clip_id: str) -> dict[str, Any]:
-    c = db.get_clip(clip_id)
-    if c is None:
-        raise HTTPException(404, "Clip not found")
-    return clip_out(c)
+def get_clip(clip_id: str, ws: str = Workspace) -> dict[str, Any]:
+    return clip_out(_clip_or_404(clip_id, ws))
 
 
 @app.get("/api/clips/{clip_id}/download")
-def download_clip(clip_id: str) -> FileResponse:
-    c = db.get_clip(clip_id)
-    if c is None or c["status"] != "done" or not c.get("filename"):
+def download_clip(clip_id: str, ws: str = Workspace) -> FileResponse:
+    c = _clip_or_404(clip_id, ws)
+    if c["status"] != "done" or not c.get("filename"):
         raise HTTPException(404, "Clip is not ready")
     path = pipeline.safe_path(get_settings().clips_dir, c["filename"])
     if path is None:
@@ -363,10 +408,8 @@ def download_clip(clip_id: str) -> FileResponse:
 
 
 @app.delete("/api/clips/{clip_id}", status_code=204)
-def delete_clip(clip_id: str) -> None:
-    c = db.get_clip(clip_id)
-    if c is None:
-        raise HTTPException(404, "Clip not found")
+def delete_clip(clip_id: str, ws: str = Workspace) -> None:
+    c = _clip_or_404(clip_id, ws)
     if c["status"] in ("queued", "rendering"):
         raise HTTPException(409, "Wait for the render to finish before deleting")
     if c.get("filename"):
@@ -376,7 +419,32 @@ def delete_clip(clip_id: str) -> None:
 
 # ------------------------------------------------------------------ static files
 
-app.mount("/media", StaticFiles(directory=get_settings().media_dir), name="media")
+MEDIA_KINDS = {"uploads", "thumbs", "clips"}
+_SAFE_NAME = re.compile(r"^[A-Za-z0-9_.-]{1,80}$")
+
+
+def _media_owner(kind: str, name: str) -> dict[str, Any] | None:
+    stem = name.split(".", 1)[0]
+    if kind == "uploads":
+        return db.get_video(stem)
+    if kind == "thumbs":
+        return db.get_video(stem.split("_", 1)[0])
+    clip = db.get_clip(stem)
+    return db.get_video(clip["video_id"]) if clip else None
+
+
+@app.get("/media/{kind}/{name}", include_in_schema=False)
+def media(kind: str, name: str, ws: str = Workspace) -> FileResponse:
+    """Serves uploads, thumbnails and renders, but only to their owner."""
+    if kind not in MEDIA_KINDS or not _SAFE_NAME.match(name):
+        raise HTTPException(404)
+    owner = _media_owner(kind, name)
+    if owner is None or not same_workspace(owner.get("workspace"), ws):
+        raise HTTPException(404)
+    path = pipeline.safe_path(get_settings().media_dir / kind, name)
+    if path is None:
+        raise HTTPException(404)
+    return FileResponse(path, headers={"Cache-Control": "private, max-age=3600"})
 
 _frontend = Path(os.environ.get(
     "CLIPWIZARD_FRONTEND_DIR", Path(__file__).resolve().parents[2] / "frontend" / "dist"

@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS videos (
     settings TEXT NOT NULL DEFAULT '{}',
     thumbnail TEXT,
     ai_used INTEGER NOT NULL DEFAULT 0,
+    workspace TEXT,
     created_at REAL NOT NULL,
     updated_at REAL NOT NULL
 );
@@ -105,10 +106,21 @@ def connect() -> Iterator[sqlite3.Connection]:
         conn.close()
 
 
+# Columns added after the first release: (table, column, definition).
+MIGRATIONS = [
+    ("videos", "workspace", "TEXT"),
+]
+
+
 def init_db() -> None:
     with connect() as conn:
         conn.execute("PRAGMA journal_mode = WAL")
         conn.executescript(SCHEMA)
+        for table, column, definition in MIGRATIONS:
+            cols = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
+            if column not in cols:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_videos_workspace ON videos(workspace)")
 
 
 def _row(row: sqlite3.Row | None) -> dict[str, Any] | None:
@@ -169,9 +181,11 @@ def get_video(video_id: str) -> dict[str, Any] | None:
         return _row(conn.execute("SELECT * FROM videos WHERE id = ?", (video_id,)).fetchone())
 
 
-def list_videos() -> list[dict[str, Any]]:
+def list_videos(workspace: str) -> list[dict[str, Any]]:
     with connect() as conn:
-        rows = conn.execute("SELECT * FROM videos ORDER BY created_at DESC").fetchall()
+        rows = conn.execute(
+            "SELECT * FROM videos WHERE workspace = ? ORDER BY created_at DESC", (workspace,)
+        ).fetchall()
     return [_row(r) for r in rows]  # type: ignore[misc]
 
 

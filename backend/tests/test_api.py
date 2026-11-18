@@ -142,3 +142,39 @@ def test_ai_enrichment_is_merged(client, demo_video, monkeypatch):
     images = [b for b in calls[0]["messages"][0]["content"] if b["type"] == "image"]
     assert len(images) == 5
     client.delete(f"/api/videos/{vid}")
+
+
+def test_workspaces_are_private(client, demo_video):
+    from app.main import app
+
+    vid = _upload(client, demo_video, max_clips=2).json()["id"]
+    video = _wait(client, f"/api/videos/{vid}")
+    thumb = video["highlights"][0]["thumbnail_url"]
+    source = video["source_url"]
+
+    with TestClient(app) as stranger:
+        assert all(v["id"] != vid for v in stranger.get("/api/videos").json())
+        assert stranger.get(f"/api/videos/{vid}").status_code == 404
+        assert stranger.get(f"/api/videos/{vid}/timeline").status_code == 404
+        assert stranger.get(source).status_code == 404
+        assert stranger.get(thumb).status_code == 404
+        assert stranger.delete(f"/api/videos/{vid}").status_code == 404
+        hid = video["highlights"][0]["id"]
+        assert stranger.patch(f"/api/highlights/{hid}", json={"title": "x"}).status_code == 404
+        assert stranger.post(f"/api/videos/{vid}/clips", json={"start": 1, "end": 3}).status_code == 404
+
+        # Opening the owner's workspace key on another device grants access.
+        key = client.get("/api/workspace").json()["key"]
+        r = stranger.post("/api/workspace", json={"key": key})
+        assert r.status_code == 200 and r.json()["videos"] >= 1
+        assert stranger.get(f"/api/videos/{vid}").status_code == 200
+        assert stranger.get(thumb).status_code == 200
+
+        assert stranger.post("/api/workspace", json={"key": "x" * 10}).status_code == 422
+
+    assert client.delete(f"/api/videos/{vid}").status_code == 204
+
+
+def test_media_rejects_path_tricks(client):
+    for url in ["/media/uploads/..%2Fclipwizard.sqlite3", "/media/other/x.mp4", "/media/uploads/a b.mp4"]:
+        assert client.get(url).status_code == 404

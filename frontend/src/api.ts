@@ -141,6 +141,9 @@ export const api = {
   exportAll: (videoId: string, body: { aspect: Aspect; title_overlay: boolean; top: number }) =>
     request<Clip[]>(`/api/videos/${videoId}/export-all`, { method: "POST", body: JSON.stringify(body) }),
   deleteClip: (id: string) => request<void>(`/api/clips/${id}`, { method: "DELETE" }),
+  workspace: () => request<{ key: string }>("/api/workspace"),
+  switchWorkspace: (key: string) =>
+    request<{ ok: boolean; videos: number }>("/api/workspace", { method: "POST", body: JSON.stringify({ key }) }),
 };
 
 export interface UploadHandle {
