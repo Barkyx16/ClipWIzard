@@ -2,7 +2,7 @@ import { useCallback, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Bot, FileVideo, Files, Link2, Loader2, UploadCloud, X, Zap } from "lucide-react";
 
-import { AnalyzeSettings, api, ApiError, ClipLength, Health, UploadHandle, uploadVideo } from "../api";
+import { AnalyzeSettings, api, ApiError, ClipLength, Health, UploadHandle, uploadVideo, Video } from "../api";
 import { formatBytes } from "../lib/format";
 import { askNotifyPermission } from "../lib/notify";
 import { DEFAULT_FORMAT, loadFormat, loadPref, savePref } from "../lib/prefs";
@@ -17,7 +17,16 @@ const LENGTHS: { value: ClipLength; label: string; hint: string }[] = [
 const MAX_FILES = 10;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-export default function UploadCard({ health, onUploaded }: { health: Health | null; onUploaded?: () => void }) {
+export default function UploadCard({
+  health,
+  onUploaded,
+  existing = [],
+}: {
+  health: Health | null;
+  onUploaded?: () => void;
+  /** Sessions already in this workspace, to catch accidental re-uploads. */
+  existing?: Video[];
+}) {
   const navigate = useNavigate();
   const inputRef = useRef<HTMLInputElement>(null);
   const handleRef = useRef<UploadHandle | null>(null);
@@ -132,15 +141,35 @@ export default function UploadCard({ health, onUploaded }: { health: Health | nu
 
   const start = async () => {
     if (!files.length) return;
+    let queue = files;
+    // Same name and size as an existing session? Probably an accidental re-upload.
+    const dupes = files.filter((f) => existing.some((v) => v.name === f.name && v.size_bytes === f.size));
+    if (dupes.length) {
+      const again = confirm(
+        dupes.length === 1
+          ? `"${dupes[0].name}" is already in your sessions. Upload it again?`
+          : `${dupes.length} of these files are already in your sessions. Upload them again?`,
+      );
+      if (!again) {
+        const match = existing.find((v) => v.name === dupes[0].name && v.size_bytes === dupes[0].size);
+        if (files.length === 1 && match) {
+          navigate(`/videos/${match.id}`);
+          return;
+        }
+        queue = files.filter((f) => !dupes.includes(f));
+        setFiles(queue);
+        if (!queue.length) return;
+      }
+    }
     askNotifyPermission();
     setError(null);
     setNotice(null);
     cancelled.current = false;
     const done: string[] = [];
     try {
-      for (let i = 0; i < files.length; i++) {
-        setCurrent({ index: i, total: files.length });
-        const video = await uploadOne(files[i]);
+      for (let i = 0; i < queue.length; i++) {
+        setCurrent({ index: i, total: queue.length });
+        const video = await uploadOne(queue[i]);
         done.push(video.id);
       }
       if (done.length === 1) {
@@ -152,17 +181,17 @@ export default function UploadCard({ health, onUploaded }: { health: Health | nu
       onUploaded?.();
     } catch (e) {
       const wasCancelled = e instanceof ApiError && e.status === -1;
-      const name = files[done.length]?.name;
+      const name = queue[done.length]?.name;
       setError(
         wasCancelled
           ? done.length
-            ? `Stopped after ${done.length} of ${files.length} files.`
+            ? `Stopped after ${done.length} of ${queue.length} files.`
             : null
           : `${name ? `${name}: ` : ""}${e instanceof Error ? e.message : "Upload failed"}. ` +
               "Pick the same file again to resume where it stopped.",
       );
       if (done.length) {
-        setFiles(files.slice(done.length));
+        setFiles(queue.slice(done.length));
         onUploaded?.();
       }
     } finally {

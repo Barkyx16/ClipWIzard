@@ -98,7 +98,7 @@ export default function HomePage() {
             ))}
           </ol>
         </div>
-        <UploadCard health={health} onUploaded={load} />
+        <UploadCard health={health} onUploaded={load} existing={videos ?? []} />
       </section>
 
       <section aria-labelledby="projects-heading">
