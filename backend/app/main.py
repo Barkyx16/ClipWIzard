@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from . import db, jobs, pipeline
 from .config import get_settings
-from .media import ffmpeg
+from .media import captions, ffmpeg
 from .workspace import (
     WorkspaceMiddleware,
     current_workspace,
@@ -82,6 +82,7 @@ class ClipCreate(BaseModel):
     title_overlay: bool = False
     title: str | None = Field(None, max_length=120)
     quality: Literal["high", "fast"] = "high"
+    captions: bool = False
 
     @model_validator(mode="after")
     def _check_range(self) -> "ClipCreate":
@@ -97,6 +98,7 @@ class ExportAll(BaseModel):
     title_overlay: bool = True
     top: int = Field(5, ge=1, le=30)
     quality: Literal["high", "fast"] = "high"
+    captions: bool = False
 
 
 class Rect(BaseModel):
@@ -193,6 +195,8 @@ def clip_out(c: dict[str, Any]) -> dict[str, Any]:
         "progress": c["progress"],
         "error": c["error"],
         "size_bytes": c["size_bytes"],
+        "transcript": c.get("transcript"),
+        "warning": c.get("warning"),
         "created_at": c["created_at"],
         "url": _media_url("clips", c.get("filename")),
         "download_url": f"/api/clips/{c['id']}/download" if c.get("filename") else None,
@@ -237,6 +241,7 @@ def health() -> dict[str, Any]:
         "ai_enabled": s.ai_enabled,
         "model": s.claude_model if s.ai_enabled else None,
         "max_upload_mb": s.max_upload_mb,
+        "captions_available": captions.available(),
         "allowed_extensions": sorted(ALLOWED_EXTENSIONS),
     }
 
@@ -386,7 +391,7 @@ def _queue_clip(v: dict[str, Any], body: ClipCreate) -> dict[str, Any]:
         h = db.get_highlight(body.highlight_id)
         if h is None or h["video_id"] != v["id"]:
             raise HTTPException(404, "Highlight not found for this video")
-    options = body.model_dump(include={"aspect", "crop_x", "title_overlay", "title", "quality"})
+    options = body.model_dump(include={"aspect", "crop_x", "title_overlay", "title", "quality", "captions"})
     if body.aspect == "vertical_facecam":
         facecam = (v.get("layout") or {}).get("facecam")
         if not facecam:
@@ -413,6 +418,7 @@ def export_all(video_id: str, body: ExportAll, ws: str = Workspace) -> list[dict
         out.append(_queue_clip(v, ClipCreate(
             highlight_id=h["id"], start=h["start"], end=h["end"], aspect=body.aspect,
             title_overlay=body.title_overlay, title=h["title"], quality=body.quality,
+            captions=body.captions,
         )))
     return out
 

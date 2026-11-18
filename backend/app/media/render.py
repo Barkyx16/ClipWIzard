@@ -39,6 +39,8 @@ class RenderOptions:
     crop_keys: list[tuple[float, float]] = field(default_factory=list)
     # vertical_facecam: facecam rectangle in source, normalised {x, y, w, h}
     facecam: dict[str, float] | None = None
+    # Burned-in captions (an ASS subtitle file written by media.captions)
+    captions_ass: Path | None = None
 
 
 def _escape_filter_path(p: Path | str) -> str:
@@ -143,6 +145,13 @@ def _facecam_graph(src_w: int, src_h: int, out_w: int, out_h: int,
     return graph, top_h
 
 
+def output_size(aspect: str, src_w: int, src_h: int) -> tuple[int, int]:
+    if aspect == "landscape":
+        out_h = _even(min(src_h, 1080))
+        return _even(src_w * out_h / max(1, src_h)), out_h
+    return ASPECTS.get(aspect, ASPECTS["vertical_blur"])
+
+
 def build_command(src: Path, out: Path, start: float, end: float, src_w: int, src_h: int,
                   has_audio: bool, opts: RenderOptions, work: Path,
                   font: str | None) -> list[str]:
@@ -186,8 +195,11 @@ def build_command(src: Path, out: Path, start: float, end: float, src_w: int, sr
     layout = "facecam" if opts.aspect == "vertical_facecam" and opts.facecam else opts.aspect
     titles = _title_filters(opts.title, out_w, out_h, work, font, layout,
                             seam=seam if layout == "facecam" else None) if opts.title else []
-    if titles:
-        graph += ";[base]" + ",".join(titles) + "[vout]"
+    overlays = list(titles)
+    if opts.captions_ass is not None:
+        overlays.append(f"subtitles=filename='{_escape_filter_path(opts.captions_ass)}'")
+    if overlays:
+        graph += ";[base]" + ",".join(overlays) + "[vout]"
     else:
         graph += ";[base]null[vout]"
 

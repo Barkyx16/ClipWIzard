@@ -19,6 +19,7 @@ COPY backend/ backend/
 COPY --from=web /web/dist frontend/dist
 
 ENV CLIPWIZARD_DATA_DIR=/data \
+    HF_HOME=/data/models \
     PYTHONUNBUFFERED=1
 VOLUME /data
 EXPOSE 8000

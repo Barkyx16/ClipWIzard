@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Check, Copy, Crosshair, Loader2, Minus, Plus, ScanFace, Scissors, X } from "lucide-react";
+import { Captions, Check, Copy, Crosshair, Loader2, Minus, Plus, ScanFace, Scissors, X } from "lucide-react";
 
 import { Aspect, Highlight } from "../api";
 import { formatTime, parseTime } from "../lib/format";
@@ -11,6 +11,7 @@ export interface EditorState {
   cropX: number;
   titleOverlay: boolean;
   title: string;
+  captions: boolean;
 }
 
 const ASPECTS: { value: Aspect; label: string; hint: string; w: number; h: number; tip: string }[] = [
@@ -105,6 +106,7 @@ function CopyButton({ text }: { text: string }) {
 }
 
 interface Props {
+  captionsAvailable: boolean;
   hasFacecam: boolean;
   drawingFacecam: boolean;
   onMarkFacecam: () => void;
@@ -124,6 +126,7 @@ export default function ClipEditor({
   duration,
   currentTime,
   exporting,
+  captionsAvailable,
   hasFacecam,
   drawingFacecam,
   onMarkFacecam,
@@ -245,6 +248,26 @@ export default function ClipEditor({
           </label>
         )}
       </div>
+
+      <label className={`flex items-start gap-2 text-sm ${captionsAvailable ? "" : "opacity-60"}`}>
+        <input
+          type="checkbox"
+          className="mt-0.5 h-4 w-4 accent-primary"
+          checked={state.captions && captionsAvailable}
+          disabled={!captionsAvailable}
+          onChange={(e) => onChange({ captions: e.target.checked })}
+        />
+        <span>
+          <span className="flex items-center gap-1.5">
+            <Captions className="h-4 w-4 text-accent" /> Auto captions
+          </span>
+          <span className="block text-xs text-muted">
+            {captionsAvailable
+              ? "Word-by-word subtitles from the voice chat and commentary."
+              : "Install faster-whisper on the server to turn this on."}
+          </span>
+        </span>
+      </label>
 
       <div className="space-y-2">
         <label className="flex items-center gap-2 text-sm">

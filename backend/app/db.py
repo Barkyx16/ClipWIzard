@@ -110,6 +110,8 @@ def connect() -> Iterator[sqlite3.Connection]:
 MIGRATIONS = [
     ("videos", "workspace", "TEXT"),
     ("videos", "layout", "TEXT NOT NULL DEFAULT '{}'"),
+    ("clips", "transcript", "TEXT"),
+    ("clips", "warning", "TEXT"),
 ]
 
 

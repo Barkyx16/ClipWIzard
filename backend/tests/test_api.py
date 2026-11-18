@@ -197,3 +197,29 @@ def test_facecam_layout_flow(client, demo_video):
     assert _wait(client, f"/api/clips/{r.json()['id']}")["status"] == "done"
     assert client.put(f"/api/videos/{vid}/layout", json={"facecam": None}).json() == {}
     client.delete(f"/api/videos/{vid}")
+
+
+def test_captions_flow(client, demo_video, monkeypatch):
+    from app.media import captions
+
+    words = [captions.Word(0.1, 0.5, "Let's"), captions.Word(0.6, 1.0, "go!")]
+    monkeypatch.setattr(captions, "transcribe", lambda *a, **k: words)
+    vid = _upload(client, demo_video, max_clips=1).json()["id"]
+    _wait(client, f"/api/videos/{vid}")
+    r = client.post(f"/api/videos/{vid}/clips", json={
+        "start": 20, "end": 23, "aspect": "vertical_blur", "captions": True, "quality": "fast"})
+    clip = _wait(client, f"/api/clips/{r.json()['id']}")
+    assert clip["status"] == "done", clip["error"]
+    assert clip["transcript"] == "Let's go!"
+    assert clip["warning"] is None
+
+    def boom(*a, **k):
+        raise captions.CaptionError("model download blocked")
+
+    monkeypatch.setattr(captions, "transcribe", boom)
+    r = client.post(f"/api/videos/{vid}/clips", json={
+        "start": 20, "end": 23, "captions": True, "quality": "fast"})
+    clip = _wait(client, f"/api/clips/{r.json()['id']}")
+    assert clip["status"] == "done"
+    assert "model download blocked" in clip["warning"]
+    client.delete(f"/api/videos/{vid}")

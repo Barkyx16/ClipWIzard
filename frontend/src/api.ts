@@ -58,6 +58,7 @@ export interface ClipOptions {
   title_overlay: boolean;
   title: string | null;
   quality: "high" | "fast";
+  captions: boolean;
 }
 
 export interface Clip {
@@ -70,6 +71,8 @@ export interface Clip {
   status: ClipStatus;
   progress: number;
   error: string | null;
+  warning: string | null;
+  transcript: string | null;
   size_bytes: number | null;
   created_at: number;
   url: string | null;
@@ -115,6 +118,7 @@ export interface Health {
   model: string | null;
   max_upload_mb: number;
   allowed_extensions: string[];
+  captions_available: boolean;
 }
 
 export class ApiError extends Error {
@@ -155,7 +159,7 @@ export const api = {
     request<Highlight>(`/api/highlights/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
   createClip: (videoId: string, body: { highlight_id?: string | null; start: number; end: number } & Partial<ClipOptions>) =>
     request<Clip>(`/api/videos/${videoId}/clips`, { method: "POST", body: JSON.stringify(body) }),
-  exportAll: (videoId: string, body: { aspect: Aspect; title_overlay: boolean; top: number }) =>
+  exportAll: (videoId: string, body: { aspect: Aspect; title_overlay: boolean; top: number; captions: boolean }) =>
     request<Clip[]>(`/api/videos/${videoId}/export-all`, { method: "POST", body: JSON.stringify(body) }),
   deleteClip: (id: string) => request<void>(`/api/clips/${id}`, { method: "DELETE" }),
   updateLayout: (videoId: string, layout: { facecam: Rect | null }) =>

@@ -43,6 +43,13 @@ export default function ExportCard({ clip, title, onDelete }: { clip: Clip; titl
           {clip.size_bytes ? ` · ${formatBytes(clip.size_bytes)}` : ""}
         </p>
         {clip.error && <p className="line-clamp-3 text-xs text-bad">{clip.error}</p>}
+        {clip.warning && <p className="line-clamp-2 text-xs text-warn">{clip.warning}</p>}
+        {clip.transcript && (
+          <details className="text-xs text-muted">
+            <summary className="cursor-pointer select-none">Transcript</summary>
+            <p className="mt-1 max-h-24 overflow-y-auto whitespace-pre-wrap">{clip.transcript}</p>
+          </details>
+        )}
         <div className="mt-auto flex gap-2 pt-1">
           {clip.download_url && (
             <a href={clip.download_url} className="btn-primary flex-1 py-2" download>

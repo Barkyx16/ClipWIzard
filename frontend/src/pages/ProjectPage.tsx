@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { AlertTriangle, ArrowLeft, Bot, Layers, Loader2, Play, RefreshCw, Repeat } from "lucide-react";
 
-import { api, AnalyzeSettings, Clip, Highlight, Rect, Timeline as TimelineData, Video } from "../api";
+import { api, AnalyzeSettings, Clip, Health, Highlight, Rect, Timeline as TimelineData, Video } from "../api";
 import ClipEditor, { EditorState } from "../components/ClipEditor";
 import ExportCard from "../components/ExportCard";
 import PlayerStage from "../components/PlayerStage";
@@ -126,7 +126,13 @@ export default function ProjectPage() {
     cropX: 0.5,
     titleOverlay: true,
     title: "",
+    captions: true,
   });
+  const [health, setHealth] = useState<Health | null>(null);
+  useEffect(() => {
+    api.health().then(setHealth).catch(() => setHealth(null));
+  }, []);
+  const captionsOn = editor.captions && Boolean(health?.captions_available);
 
   const highlights = useMemo(() => video?.highlights ?? [], [video]);
   const clips = useMemo(() => video?.clips ?? [], [video]);
@@ -220,6 +226,7 @@ export default function ProjectPage() {
         crop_x: editor.cropX,
         title_overlay: editor.titleOverlay && editor.title.trim() !== "",
         title: editor.title.trim() || null,
+        captions: captionsOn,
       });
       setVideo((v) => (v ? { ...v, clips: [clip, ...(v.clips ?? [])] } : v));
       load();
@@ -241,6 +248,7 @@ export default function ProjectPage() {
             : editor.aspect,
         title_overlay: editor.titleOverlay,
         top: Math.min(5, highlights.length),
+        captions: captionsOn,
       });
       load();
     } catch (e) {
@@ -411,6 +419,7 @@ export default function ProjectPage() {
               duration={video.duration}
               currentTime={currentTime}
               exporting={exporting}
+              captionsAvailable={Boolean(health?.captions_available)}
               hasFacecam={Boolean(video.layout?.facecam)}
               drawingFacecam={drawingFacecam}
               onMarkFacecam={() => {

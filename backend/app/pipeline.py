@@ -17,7 +17,8 @@ from .analysis.smartcrop import camera_path, keyframes
 from .analysis.signals import MotionAccumulator, build_signals
 from .config import get_settings
 from .media.ffmpeg import FFmpegError, decode_for_analysis, extract_frame
-from .media.render import RenderOptions, render_clip
+from .media import captions
+from .media.render import RenderOptions, output_size, render_clip
 
 log = logging.getLogger(__name__)
 
@@ -197,16 +198,38 @@ def render(clip_id: str) -> None:
             dur = float(clip["end"]) - float(clip["start"])
             opts.crop_keys = keyframes(path, hop, float(clip["start"]), float(clip["end"]),
                                        every=max(0.5, dur / 80))
-    db.update_clip(clip_id, status="rendering", progress=0.0, error=None)
+    db.update_clip(clip_id, status="rendering", progress=0.0, error=None, warning=None)
     last = [0.0]
+    span = [0.0, 1.0]  # progress range used by the current step
 
     def progress(frac: float) -> None:
         now = time.monotonic()
         if now - last[0] >= 0.5 or frac >= 1.0:
             last[0] = now
-            db.update_clip(clip_id, progress=round(frac, 4))
+            db.update_clip(clip_id, progress=round(span[0] + (span[1] - span[0]) * frac, 4))
 
     try:
+        work.mkdir(parents=True, exist_ok=True)
+        if o.get("captions"):
+            span[1] = 0.3
+            progress(0.0)
+            try:
+                words = captions.transcribe(src, float(clip["start"]), float(clip["end"]), work)
+                db.update_clip(clip_id, transcript=captions.transcript_text(words) or None)
+                if words:
+                    out_w, out_h = output_size(opts.aspect, int(video["width"]), int(video["height"]))
+                    ass = work / "captions.ass"
+                    ass.write_text(captions.build_ass(
+                        words, out_w, out_h, float(clip["end"]) - float(clip["start"]),
+                        position=0.85 if opts.aspect == "landscape" else 0.72,
+                    ), encoding="utf-8")
+                    opts.captions_ass = ass
+                else:
+                    db.update_clip(clip_id, warning="No speech found for captions")
+            except captions.CaptionError as e:
+                log.warning("Captions skipped for clip %s: %s", clip_id, e)
+                db.update_clip(clip_id, warning=f"Captions skipped: {e}"[:300])
+            span[0], span[1] = 0.3, 1.0
         render_clip(
             src, out, float(clip["start"]), float(clip["end"]),
             int(video["width"]), int(video["height"]), float(video["fps"] or 30),
