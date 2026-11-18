@@ -393,3 +393,25 @@ def test_clip_with_slow_mo_replay(client, demo_video):
     # clip + 3s replay at half speed (6s) - 0.25s flash overlap
     assert abs(info.duration - ((end - h["start"]) + 6.0 - 0.25)) < 0.5
     client.delete(f"/api/videos/{vid}")
+
+
+def test_download_all_zip(client, demo_video):
+    import io
+    import zipfile
+
+    vid = _upload(client, demo_video, max_clips=2).json()["id"]
+    _wait(client, f"/api/videos/{vid}")
+    assert client.get(f"/api/videos/{vid}/clips.zip").status_code == 404
+    r = client.post(f"/api/videos/{vid}/export-all", json={"top": 2, "quality": "fast"})
+    for c in r.json():
+        assert _wait(client, f"/api/clips/{c['id']}")["status"] == "done"
+    z = client.get(f"/api/videos/{vid}/clips.zip")
+    assert z.status_code == 200 and z.headers["content-type"] == "application/zip"
+    names = zipfile.ZipFile(io.BytesIO(z.content)).namelist()
+    assert len(names) == 2 and all(n.endswith(".mp4") for n in names)
+    assert names[0].startswith("01-")
+    from app.main import app
+
+    with TestClient(app) as stranger:
+        assert stranger.get(f"/api/videos/{vid}/clips.zip").status_code == 404
+    client.delete(f"/api/videos/{vid}")

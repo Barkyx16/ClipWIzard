@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { AlertTriangle, ArrowLeft, Bot, Loader2, Play, RefreshCw, Repeat } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Bot, FolderDown, Loader2, Play, RefreshCw, Repeat } from "lucide-react";
 
 import { api, AnalyzeSettings, Clip, Health, Highlight, isBusy, Rect, Timeline as TimelineData, Video } from "../api";
 import ClipEditor, { CaptionStyle, EditorState } from "../components/ClipEditor";
@@ -602,9 +602,16 @@ export default function ProjectPage() {
           </div>
 
           <section aria-labelledby="exports-heading" className="min-w-0 lg:col-start-1">
-            <h2 id="exports-heading" className="mb-3 font-display text-3xl tracking-wide">
-              Exports
-            </h2>
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <h2 id="exports-heading" className="font-display text-3xl tracking-wide">
+                Exports
+              </h2>
+              {clips.filter((c) => c.status === "done").length > 1 && (
+                <a href={`/api/videos/${video.id}/clips.zip`} className="btn-ghost px-3 py-1.5 text-xs" download>
+                  <FolderDown className="h-4 w-4" /> Download all
+                </a>
+              )}
+            </div>
             {clips.length === 0 ? (
               <p className="card px-4 py-8 text-center text-sm text-muted">
                 Exported clips show up here, ready to download.

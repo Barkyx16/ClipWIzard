@@ -7,6 +7,7 @@ import logging
 import os
 import re
 import secrets
+import zipfile
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Literal
@@ -15,6 +16,7 @@ from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.background import BackgroundTask
 from pydantic import BaseModel, Field, model_validator
 
 from . import db, jobs, pipeline, retention
@@ -747,6 +749,36 @@ def create_montage(video_id: str, body: MontageCreate, ws: str = Workspace) -> d
 def list_clips(video_id: str, ws: str = Workspace) -> list[dict[str, Any]]:
     _video_or_404(video_id, ws)
     return [clip_out(c) for c in db.list_clips(video_id)]
+
+
+@app.get("/api/videos/{video_id}/clips.zip")
+def download_all_clips(video_id: str, ws: str = Workspace) -> FileResponse:
+    """Every finished clip of a session in one zip (stored, not recompressed)."""
+    v = _video_or_404(video_id, ws)
+    done = [c for c in db.list_clips(video_id) if c["status"] == "done" and c.get("filename")]
+    if not done:
+        raise HTTPException(404, "No finished clips to download yet")
+    s = get_settings()
+    tmp = s.work_dir / f"zip_{db.new_id()}.zip"
+    titles = {h["id"]: h["title"] for h in db.list_highlights(video_id)}
+    used: set[str] = set()
+    with zipfile.ZipFile(tmp, "w", compression=zipfile.ZIP_STORED) as zf:
+        for i, c in enumerate(reversed(done), start=1):
+            path = pipeline.safe_path(s.clips_dir, c["filename"])
+            if path is None:
+                continue
+            o = c.get("options") or {}
+            base = "montage" if o.get("kind") == "montage" else (titles.get(c.get("highlight_id") or "")
+                                                                 or o.get("title") or "clip")
+            slug = re.sub(r"[^A-Za-z0-9]+", "-", base).strip("-").lower()[:50] or "clip"
+            name = f"{i:02d}-{slug}.mp4"
+            while name in used:
+                name = f"{i:02d}-{slug}-{c['id'][:4]}.mp4"
+            used.add(name)
+            zf.write(path, arcname=name)
+    stem = re.sub(r"[^A-Za-z0-9]+", "-", Path(v["original_name"]).stem).strip("-").lower()[:40] or "session"
+    return FileResponse(tmp, media_type="application/zip", filename=f"clipwizard-{stem}.zip",
+                        background=BackgroundTask(tmp.unlink, missing_ok=True))
 
 
 @app.get("/api/clips/{clip_id}")
