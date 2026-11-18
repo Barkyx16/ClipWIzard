@@ -26,7 +26,7 @@ export default function ExportCard({ clip, title, onDelete }: { clip: Clip; titl
           </div>
         ) : (
           <div className="flex h-full flex-col items-center justify-center gap-3 p-4 text-sm text-muted">
-            <Loader2 className="h-6 w-6 animate-spin text-pink" />
+            <Loader2 className="h-6 w-6 animate-spin text-primary" />
             {clip.status === "queued" ? "Queued…" : `Rendering ${Math.round(clip.progress * 100)}%`}
             <ProgressBar value={clip.progress} className="max-w-40" />
           </div>

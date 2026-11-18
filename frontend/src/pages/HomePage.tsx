@@ -60,7 +60,7 @@ export default function HomePage() {
     <div className="space-y-14">
       <section className="grid items-center gap-10 lg:grid-cols-[1.1fr_1fr]">
         <div>
-          <p className="mb-4 inline-flex items-center gap-2 rounded-full border border-pink/40 bg-pink/10 px-3 py-1 text-xs font-semibold text-pink">
+          <p className="mb-4 inline-flex items-center gap-2 rounded-full border border-primary/40 bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
             <Wand2 className="h-3.5 w-3.5" /> Built for GTA 6 clippers
           </p>
           <h1 className="font-display text-6xl leading-[0.95] tracking-wide sm:text-7xl lg:text-8xl">
@@ -75,7 +75,7 @@ export default function HomePage() {
           <ol className="mt-8 grid gap-4 sm:grid-cols-3">
             {STEPS.map((s, i) => (
               <li key={s.title} className="rounded-xl border border-line/80 bg-surface/50 p-4">
-                <s.icon className="mb-2 h-5 w-5 text-teal" />
+                <s.icon className="mb-2 h-5 w-5 text-accent" />
                 <p className="text-sm font-semibold">
                   {i + 1}. {s.title}
                 </p>

@@ -29,23 +29,25 @@ export function timeAgo(epochSeconds: number): string {
   return `${Math.floor(diff / 86400)}d ago`;
 }
 
+// Categories that share a meaning with a theme color use it; the rest are a fixed
+// categorical palette so each label stays distinguishable.
 export const CATEGORY_STYLE: Record<string, { color: string; emoji: string }> = {
-  Shootout: { color: "#ff5c6c", emoji: "🔫" },
+  Shootout: { color: "var(--color-bad)", emoji: "🔫" },
   "Police Chase": { color: "#4d8bff", emoji: "🚓" },
-  "Car Chase": { color: "#2de2e6", emoji: "🏎️" },
-  Chase: { color: "#2de2e6", emoji: "🏎️" },
-  Explosion: { color: "#ff9a3c", emoji: "💥" },
-  "Big Impact": { color: "#ff9a3c", emoji: "💥" },
-  "Car Crash": { color: "#ffb84d", emoji: "🚗" },
+  "Car Chase": { color: "var(--color-accent)", emoji: "🏎️" },
+  Chase: { color: "var(--color-accent)", emoji: "🏎️" },
+  Explosion: { color: "var(--color-primary-2)", emoji: "💥" },
+  "Big Impact": { color: "var(--color-primary-2)", emoji: "💥" },
+  "Car Crash": { color: "var(--color-warn)", emoji: "🚗" },
   Stunt: { color: "#b56cff", emoji: "🛞" },
-  Heist: { color: "#4ade80", emoji: "💰" },
+  Heist: { color: "var(--color-good)", emoji: "💰" },
   "Wanted Escape": { color: "#7aa2ff", emoji: "⭐" },
   "Funny Moment": { color: "#ffe14d", emoji: "😂" },
   Fail: { color: "#ff7ac6", emoji: "🤦" },
-  "Clutch Play": { color: "#4ade80", emoji: "🎯" },
+  "Clutch Play": { color: "var(--color-good)", emoji: "🎯" },
   Scenic: { color: "#7be3ff", emoji: "🌅" },
-  "Hype Moment": { color: "#ff3d8b", emoji: "🔥" },
-  Action: { color: "#a59cc4", emoji: "⚡" },
+  "Hype Moment": { color: "var(--color-primary)", emoji: "🔥" },
+  Action: { color: "var(--color-muted)", emoji: "⚡" },
 };
 
 export function categoryStyle(category: string) {

@@ -9,7 +9,7 @@ export default function VideoCard({ video, onDelete }: { video: Video; onDelete:
   const busy = video.status === "queued" || video.status === "analyzing";
   return (
     <div className="card group relative overflow-hidden transition hover:border-muted/50">
-      <Link to={`/videos/${video.id}`} className="block focus-visible:outline-2 focus-visible:outline-teal">
+      <Link to={`/videos/${video.id}`} className="block focus-visible:outline-2 focus-visible:outline-accent">
         <div className="relative aspect-video bg-surface-2">
           {video.thumbnail_url ? (
             <img src={video.thumbnail_url} alt="" className="h-full w-full object-cover" loading="lazy" />

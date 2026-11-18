@@ -126,11 +126,11 @@ export default function ClipEditor({ highlight, state, duration, currentTime, ex
       {highlight && (
         <div className="space-y-1.5 rounded-xl border border-line bg-surface-2/60 p-3">
           <p className="label mb-1">Why this moment</p>
-          <SignalBar label="Audio" value={highlight.signals.audio} color="#ff3d8b" />
-          <SignalBar label="Gunfire" value={highlight.signals.gunfire} color="#ff5c6c" />
-          <SignalBar label="Motion" value={highlight.signals.motion} color="#2de2e6" />
+          <SignalBar label="Audio" value={highlight.signals.audio} color="var(--color-primary)" />
+          <SignalBar label="Gunfire" value={highlight.signals.gunfire} color="var(--color-bad)" />
+          <SignalBar label="Motion" value={highlight.signals.motion} color="var(--color-accent)" />
           {highlight.signals.ai_hype !== undefined && (
-            <SignalBar label="AI hype" value={highlight.signals.ai_hype / 100} color="#ff9a3c" />
+            <SignalBar label="AI hype" value={highlight.signals.ai_hype / 100} color="var(--color-primary-2)" />
           )}
         </div>
       )}
@@ -160,12 +160,12 @@ export default function ClipEditor({ highlight, state, duration, currentTime, ex
               onClick={() => onChange({ aspect: a.value })}
               aria-pressed={state.aspect === a.value}
               className={`flex flex-col items-center gap-1.5 rounded-xl border p-2 text-xs transition ${
-                state.aspect === a.value ? "border-pink bg-pink/10 text-ink" : "border-line text-muted hover:border-muted/60"
+                state.aspect === a.value ? "border-primary bg-primary/10 text-ink" : "border-line text-muted hover:border-muted/60"
               }`}
             >
               <span className="flex h-9 items-center">
                 <span
-                  className={`block rounded-sm border-2 ${state.aspect === a.value ? "border-pink" : "border-dim"}`}
+                  className={`block rounded-sm border-2 ${state.aspect === a.value ? "border-primary" : "border-dim"}`}
                   style={{ width: (a.w / Math.max(a.w, a.h)) * 32, height: (a.h / Math.max(a.w, a.h)) * 32 }}
                 />
               </span>
@@ -194,7 +194,7 @@ export default function ClipEditor({ highlight, state, duration, currentTime, ex
         <label className="flex items-center gap-2 text-sm">
           <input
             type="checkbox"
-            className="h-4 w-4 accent-pink"
+            className="h-4 w-4 accent-primary"
             checked={state.titleOverlay}
             onChange={(e) => onChange({ titleOverlay: e.target.checked })}
           />

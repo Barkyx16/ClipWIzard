@@ -1,0 +1,44 @@
+/*
+ * ClipWizard theme: every color and font the UI uses lives here.
+ *
+ * To restyle the whole site (e.g. to match another brand), change only the
+ * values in this file. If you switch fonts, also install the matching
+ * @fontsource package and update the imports at the top of src/main.tsx.
+ */
+
+@theme {
+  /* Surfaces */
+  --color-bg: #0b0814;
+  --color-surface: #141022;
+  --color-surface-2: #1c1630;
+  --color-line: #2c2347;
+
+  /* Text */
+  --color-ink: #f4f0ff;
+  --color-muted: #a59cc4;
+  --color-dim: #6f6690;
+
+  /* Brand: primary buttons/gradients run from primary to primary-2 */
+  --color-primary: #ff3d8b;
+  --color-primary-2: #ff9a3c;
+  --color-on-primary: #ffffff;
+  /* Secondary accent: focus rings, selection, active states */
+  --color-accent: #2de2e6;
+
+  /* Status */
+  --color-good: #4ade80;
+  --color-warn: #ffb84d;
+  --color-bad: #ff5c6c;
+
+  /* Type */
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Bebas Neue", "Inter Variable", ui-sans-serif, sans-serif;
+}
+
+:root {
+  color-scheme: dark;
+  /* Soft glows behind the page */
+  --page-glow-1: rgb(255 61 139 / 0.14);
+  --page-glow-2: rgb(45 226 230 / 0.08);
+  --brand-gradient: linear-gradient(110deg, var(--color-primary), var(--color-primary-2));
+}

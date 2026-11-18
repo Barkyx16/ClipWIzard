@@ -26,7 +26,7 @@ function AnalyzingState({ video }: { video: Video }) {
   }, []);
   return (
     <div className="card mx-auto max-w-2xl p-8 text-center">
-      <Loader2 className="mx-auto mb-4 h-10 w-10 animate-spin text-pink" />
+      <Loader2 className="mx-auto mb-4 h-10 w-10 animate-spin text-primary" />
       <h2 className="font-display text-4xl tracking-wide">{video.stage ?? "Queued"}…</h2>
       <p className="mt-2 text-sm text-muted">
         {formatTime(video.duration)} of footage. Long sessions take a few minutes; you can leave this page and come back.
@@ -257,7 +257,7 @@ export default function ProjectPage() {
   if (!video) {
     return (
       <div className="flex justify-center py-24">
-        <Loader2 className="h-8 w-8 animate-spin text-pink" />
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
       </div>
     );
   }
@@ -287,7 +287,7 @@ export default function ProjectPage() {
             </span>
             {video.status === "ready" && <span>{highlights.length} highlights</span>}
             {video.ai_used && (
-              <span className="inline-flex items-center gap-1 text-teal">
+              <span className="inline-flex items-center gap-1 text-accent">
                 <Bot className="h-4 w-4" /> AI enriched
               </span>
             )}
@@ -336,7 +336,7 @@ export default function ProjectPage() {
                   <div className="pointer-events-none absolute inset-0">
                     <div className="absolute inset-y-0 left-0 bg-black/60" style={{ width: `${cropOverlay.left}%` }} />
                     <div
-                      className="absolute inset-y-0 border-2 border-teal"
+                      className="absolute inset-y-0 border-2 border-accent"
                       style={{ left: `${cropOverlay.left}%`, width: `${cropOverlay.width}%` }}
                     />
                     <div
@@ -352,7 +352,7 @@ export default function ProjectPage() {
                 </button>
                 <button
                   type="button"
-                  className={`btn-ghost py-2 ${loop ? "border-teal text-teal" : ""}`}
+                  className={`btn-ghost py-2 ${loop ? "border-accent text-accent" : ""}`}
                   aria-pressed={loop}
                   onClick={() => setLoop((l) => !l)}
                 >

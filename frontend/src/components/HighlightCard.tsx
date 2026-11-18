@@ -17,8 +17,8 @@ export default function HighlightCard({
     <button
       type="button"
       onClick={() => onSelect(h)}
-      className={`flex w-full gap-3 rounded-xl border p-2 text-left transition focus-visible:outline-2 focus-visible:outline-teal ${
-        selected ? "border-teal bg-teal/10" : "border-line bg-surface-2/60 hover:border-muted/50"
+      className={`flex w-full gap-3 rounded-xl border p-2 text-left transition focus-visible:outline-2 focus-visible:outline-accent ${
+        selected ? "border-accent bg-accent/10" : "border-line bg-surface-2/60 hover:border-muted/50"
       }`}
     >
       <div className="relative aspect-video w-28 shrink-0 overflow-hidden rounded-lg bg-bg">
@@ -38,7 +38,7 @@ export default function HighlightCard({
           <span>
             {formatTime(h.start)}–{formatTime(h.end)}
           </span>
-          {h.ai_enriched && <Bot className="h-3.5 w-3.5 text-teal" aria-label="AI enriched" />}
+          {h.ai_enriched && <Bot className="h-3.5 w-3.5 text-accent" aria-label="AI enriched" />}
         </div>
       </div>
     </button>

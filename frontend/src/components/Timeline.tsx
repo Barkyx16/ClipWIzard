@@ -63,8 +63,8 @@ export default function Timeline({ data, duration, highlights, selectedId, curre
         <svg viewBox={`0 0 1000 ${H}`} preserveAspectRatio="none" className="absolute inset-0 h-full w-full">
           <defs>
             <linearGradient id="exc" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0" stopColor="#ff3d8b" stopOpacity="0.9" />
-              <stop offset="1" stopColor="#ff9a3c" stopOpacity="0.15" />
+              <stop offset="0" style={{ stopColor: "var(--color-primary)", stopOpacity: 0.9 }} />
+              <stop offset="1" style={{ stopColor: "var(--color-primary-2)", stopOpacity: 0.15 }} />
             </linearGradient>
           </defs>
           {path && <path d={path} fill="url(#exc)" />}
@@ -80,7 +80,7 @@ export default function Timeline({ data, duration, highlights, selectedId, curre
               onSelect(h);
             }}
             className={`absolute top-0 h-full border-x transition ${
-              h.id === selectedId ? "border-teal bg-teal/25" : "border-white/20 bg-white/5 hover:bg-white/15"
+              h.id === selectedId ? "border-accent bg-accent/25" : "border-white/20 bg-white/5 hover:bg-white/15"
             }`}
             style={{ left: x(h.start), width: `calc(${x(h.end)} - ${x(h.start)})` }}
           >
@@ -90,7 +90,7 @@ export default function Timeline({ data, duration, highlights, selectedId, curre
 
         {range && (
           <div
-            className="pointer-events-none absolute top-0 h-full border-2 border-teal"
+            className="pointer-events-none absolute top-0 h-full border-2 border-accent"
             style={{ left: x(range.start), width: `calc(${x(range.end)} - ${x(range.start)})` }}
           />
         )}

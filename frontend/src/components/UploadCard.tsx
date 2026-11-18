@@ -92,7 +92,7 @@ export default function UploadCard({ health }: { health: Health | null }) {
         role="button"
         tabIndex={0}
         className={`flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed px-4 py-10 text-center transition ${
-          dragging ? "border-pink bg-pink/10" : "border-line hover:border-muted/60 hover:bg-surface-2/50"
+          dragging ? "border-primary bg-primary/10" : "border-line hover:border-muted/60 hover:bg-surface-2/50"
         } ${uploading ? "pointer-events-none opacity-70" : ""}`}
       >
         <input
@@ -104,13 +104,13 @@ export default function UploadCard({ health }: { health: Health | null }) {
         />
         {file ? (
           <>
-            <FileVideo className="mb-3 h-10 w-10 text-teal" />
+            <FileVideo className="mb-3 h-10 w-10 text-accent" />
             <p className="max-w-full truncate font-semibold">{file.name}</p>
             <p className="mt-1 text-sm text-muted">{formatBytes(file.size)} · click to change</p>
           </>
         ) : (
           <>
-            <UploadCloud className="mb-3 h-10 w-10 text-pink" />
+            <UploadCloud className="mb-3 h-10 w-10 text-primary" />
             <p className="font-semibold">Drop your gameplay recording here</p>
             <p className="mt-1 text-sm text-muted">MP4, MOV, MKV or WebM · streams and long sessions welcome</p>
           </>
@@ -180,14 +180,14 @@ export default function UploadCard({ health }: { health: Health | null }) {
       >
         <input
           type="checkbox"
-          className="mt-1 h-4 w-4 accent-pink"
+          className="mt-1 h-4 w-4 accent-primary"
           checked={settings.use_ai && aiAvailable}
           disabled={!aiAvailable || uploading}
           onChange={(e) => setSettings((s) => ({ ...s, use_ai: e.target.checked }))}
         />
         <span className="text-sm">
           <span className="flex items-center gap-1.5 font-semibold">
-            <Bot className="h-4 w-4 text-teal" /> AI titles &amp; captions
+            <Bot className="h-4 w-4 text-accent" /> AI titles &amp; captions
           </span>
           <span className="text-muted">
             {aiAvailable

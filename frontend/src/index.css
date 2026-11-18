@@ -1,45 +1,27 @@
 @import "tailwindcss";
+@import "./theme.css";
 
-@theme {
-  --color-bg: #0b0814;
-  --color-surface: #141022;
-  --color-surface-2: #1c1630;
-  --color-line: #2c2347;
-  --color-ink: #f4f0ff;
-  --color-muted: #a59cc4;
-  --color-dim: #6f6690;
-  --color-pink: #ff3d8b;
-  --color-sunset: #ff9a3c;
-  --color-teal: #2de2e6;
-  --color-good: #4ade80;
-  --color-bad: #ff5c6c;
 
-  --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
-  --font-display: "Bebas Neue", "Inter Variable", ui-sans-serif, sans-serif;
-}
 
-html {
-  color-scheme: dark;
-}
 
 body {
   @apply bg-bg text-ink font-sans antialiased;
   background-image:
-    radial-gradient(1200px 500px at 85% -10%, rgb(255 61 139 / 0.14), transparent 60%),
-    radial-gradient(900px 500px at -10% 10%, rgb(45 226 230 / 0.08), transparent 60%);
+    radial-gradient(1200px 500px at 85% -10%, var(--page-glow-1), transparent 60%),
+    radial-gradient(900px 500px at -10% 10%, var(--page-glow-2), transparent 60%);
   background-attachment: fixed;
   min-height: 100vh;
 }
 
 @utility text-gradient {
-  background-image: linear-gradient(90deg, var(--color-pink), var(--color-sunset));
+  background-image: linear-gradient(90deg, var(--color-primary), var(--color-primary-2));
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
 }
 
 @utility bg-gradient-brand {
-  background-image: linear-gradient(110deg, var(--color-pink), var(--color-sunset));
+  background-image: var(--brand-gradient);
 }
 
 @utility card {
@@ -48,11 +30,11 @@ body {
 
 @utility btn {
   @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition
-    disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal;
+    disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent;
 }
 
 @utility btn-primary {
-  @apply btn bg-gradient-brand text-white shadow-lg shadow-pink/20 hover:brightness-110;
+  @apply btn bg-gradient-brand text-on-primary shadow-lg shadow-primary/20 hover:brightness-110;
 }
 
 @utility btn-ghost {
@@ -61,12 +43,12 @@ body {
 
 @utility btn-icon {
   @apply inline-flex h-9 w-9 items-center justify-center rounded-lg border border-line bg-surface-2 text-muted transition
-    hover:text-ink hover:border-muted/60 focus-visible:outline-2 focus-visible:outline-teal;
+    hover:text-ink hover:border-muted/60 focus-visible:outline-2 focus-visible:outline-accent;
 }
 
 @utility input {
   @apply w-full rounded-xl border border-line bg-surface-2 px-3 py-2 text-sm text-ink placeholder:text-dim
-    focus:border-teal focus:outline-none;
+    focus:border-accent focus:outline-none;
 }
 
 @utility label {
@@ -74,5 +56,5 @@ body {
 }
 
 input[type="range"] {
-  accent-color: var(--color-pink);
+  accent-color: var(--color-primary);
 }

@@ -13,7 +13,7 @@ export default function Layout() {
             </span>
           </Link>
           <span className="hidden items-center gap-1.5 rounded-full border border-line px-3 py-1 text-xs text-muted sm:inline-flex">
-            <Sparkles className="h-3.5 w-3.5 text-teal" /> AI clipping for GTA 6 creators
+            <Sparkles className="h-3.5 w-3.5 text-accent" /> AI clipping for GTA 6 creators
           </span>
         </div>
       </header>
