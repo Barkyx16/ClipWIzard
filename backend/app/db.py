@@ -82,7 +82,7 @@ CREATE TABLE IF NOT EXISTS clips (
 CREATE INDEX IF NOT EXISTS idx_clips_video ON clips(video_id);
 """
 
-_JSON_FIELDS = {"settings", "hashtags", "signals", "options", "data"}
+_JSON_FIELDS = {"settings", "hashtags", "signals", "options", "data", "layout"}
 _BOOL_FIELDS = {"has_audio", "ai_used", "ai_enriched"}
 
 
@@ -109,6 +109,7 @@ def connect() -> Iterator[sqlite3.Connection]:
 # Columns added after the first release: (table, column, definition).
 MIGRATIONS = [
     ("videos", "workspace", "TEXT"),
+    ("videos", "layout", "TEXT NOT NULL DEFAULT '{}'"),
 ]
 
 

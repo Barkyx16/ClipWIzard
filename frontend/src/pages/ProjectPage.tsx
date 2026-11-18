@@ -2,9 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { AlertTriangle, ArrowLeft, Bot, Layers, Loader2, Play, RefreshCw, Repeat } from "lucide-react";
 
-import { api, AnalyzeSettings, Clip, Highlight, Timeline as TimelineData, Video } from "../api";
+import { api, AnalyzeSettings, Clip, Highlight, Rect, Timeline as TimelineData, Video } from "../api";
 import ClipEditor, { EditorState } from "../components/ClipEditor";
 import ExportCard from "../components/ExportCard";
+import PlayerStage from "../components/PlayerStage";
 import HighlightCard from "../components/HighlightCard";
 import ProgressBar from "../components/ProgressBar";
 import Timeline from "../components/Timeline";
@@ -117,6 +118,7 @@ export default function ProjectPage() {
   const [loop, setLoop] = useState(true);
   const [exporting, setExporting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [drawingFacecam, setDrawingFacecam] = useState(false);
   const [editor, setEditor] = useState<EditorState>({
     start: 0,
     end: 15,
@@ -233,13 +235,28 @@ export default function ProjectPage() {
     setActionError(null);
     try {
       await api.exportAll(video.id, {
-        aspect: editor.aspect === "vertical_crop" ? "vertical_blur" : editor.aspect,
+        aspect:
+          editor.aspect === "vertical_crop" || (editor.aspect === "vertical_facecam" && !video.layout?.facecam)
+            ? "vertical_blur"
+            : editor.aspect,
         title_overlay: editor.titleOverlay,
         top: Math.min(5, highlights.length),
       });
       load();
     } catch (e) {
       setActionError(e instanceof Error ? e.message : "Export failed");
+    }
+  };
+
+  const saveFacecam = async (rect: Rect | null) => {
+    if (!video) return;
+    setDrawingFacecam(false);
+    setActionError(null);
+    try {
+      const layout = await api.updateLayout(video.id, { facecam: rect });
+      setVideo((v) => (v ? { ...v, layout } : v));
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : "Could not save the facecam area");
     }
   };
 
@@ -272,27 +289,6 @@ export default function ProjectPage() {
       </div>
     );
   }
-
-  const smartCentre = (t: number) => {
-    const path = timeline?.crop_path;
-    const hop = timeline?.crop_hop;
-    if (!path?.length || !hop) return 0.5;
-    const pos = Math.min(Math.max(t / hop, 0), path.length - 1);
-    const i = Math.floor(pos);
-    const j = Math.min(i + 1, path.length - 1);
-    return path[i] + (path[j] - path[i]) * (pos - i);
-  };
-
-  const cropOverlay =
-    (editor.aspect === "vertical_crop" || editor.aspect === "vertical_smart") && video.width / video.height > 9 / 16
-      ? (() => {
-          const frac = (video.height * (9 / 16)) / video.width;
-          if (editor.aspect === "vertical_crop") return { left: (1 - frac) * editor.cropX * 100, width: frac * 100 };
-          const centre = smartCentre(currentTime);
-          const left = Math.min(Math.max(centre - frac / 2, 0), 1 - frac);
-          return { left: left * 100, width: frac * 100 };
-        })()
-      : null;
 
   return (
     <div className="space-y-6">
@@ -342,34 +338,18 @@ export default function ProjectPage() {
         <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_400px] lg:grid-rows-[auto_1fr] lg:items-start">
           <div className="min-w-0 space-y-4">
             <div className="card overflow-hidden p-2">
-              <div
-                className="relative mx-auto max-h-[62vh] overflow-hidden rounded-xl bg-black"
-                style={{ aspectRatio: `${video.width} / ${video.height}` }}
-              >
-                <video
-                  ref={videoRef}
-                  src={video.source_url}
-                  controls
-                  playsInline
-                  preload="metadata"
-                  className="absolute inset-0 h-full w-full"
-                  onTimeUpdate={onTimeUpdate}
-                  onSeeked={onTimeUpdate}
-                />
-                {cropOverlay && (
-                  <div className="pointer-events-none absolute inset-0 [&>div]:transition-all [&>div]:duration-300 [&>div]:ease-linear">
-                    <div className="absolute inset-y-0 left-0 bg-black/60" style={{ width: `${cropOverlay.left}%` }} />
-                    <div
-                      className="absolute inset-y-0 border-2 border-accent"
-                      style={{ left: `${cropOverlay.left}%`, width: `${cropOverlay.width}%` }}
-                    />
-                    <div
-                      className="absolute inset-y-0 right-0 bg-black/60"
-                      style={{ width: `${100 - cropOverlay.left - cropOverlay.width}%` }}
-                    />
-                  </div>
-                )}
-              </div>
+              <PlayerStage
+                ref={videoRef}
+                video={video}
+                aspect={editor.aspect}
+                cropX={editor.cropX}
+                currentTime={currentTime}
+                timeline={timeline}
+                drawing={drawingFacecam}
+                onTimeUpdate={onTimeUpdate}
+                onFacecamDrawn={saveFacecam}
+                onCancelDrawing={() => setDrawingFacecam(false)}
+              />
               <div className="flex flex-wrap items-center gap-2 px-2 pb-1 pt-3">
                 <button type="button" className="btn-ghost py-2" onClick={playRange}>
                   <Play className="h-4 w-4" /> Play clip
@@ -431,6 +411,14 @@ export default function ProjectPage() {
               duration={video.duration}
               currentTime={currentTime}
               exporting={exporting}
+              hasFacecam={Boolean(video.layout?.facecam)}
+              drawingFacecam={drawingFacecam}
+              onMarkFacecam={() => {
+                setDrawingFacecam((d) => !d);
+                videoRef.current?.pause();
+                videoRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+              }}
+              onClearFacecam={() => saveFacecam(null)}
               onChange={(patch) => setEditor((s) => ({ ...s, ...patch }))}
               onExport={exportClip}
             />

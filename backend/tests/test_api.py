@@ -178,3 +178,22 @@ def test_workspaces_are_private(client, demo_video):
 def test_media_rejects_path_tricks(client):
     for url in ["/media/uploads/..%2Fclipwizard.sqlite3", "/media/other/x.mp4", "/media/uploads/a b.mp4"]:
         assert client.get(url).status_code == 404
+
+
+def test_facecam_layout_flow(client, demo_video):
+    vid = _upload(client, demo_video, max_clips=1).json()["id"]
+    _wait(client, f"/api/videos/{vid}")
+    # Exporting the facecam layout requires a marked facecam.
+    r = client.post(f"/api/videos/{vid}/clips", json={"start": 1, "end": 3, "aspect": "vertical_facecam"})
+    assert r.status_code == 422
+    bad = client.put(f"/api/videos/{vid}/layout", json={"facecam": {"x": 0.9, "y": 0, "w": 0.5, "h": 0.2}})
+    assert bad.status_code == 422
+    rect = {"x": 0.7, "y": 0.05, "w": 0.25, "h": 0.3}
+    assert client.put(f"/api/videos/{vid}/layout", json={"facecam": rect}).json() == {"facecam": rect}
+    assert client.get(f"/api/videos/{vid}").json()["layout"]["facecam"] == rect
+    r = client.post(f"/api/videos/{vid}/clips", json={
+        "start": 1, "end": 3, "aspect": "vertical_facecam", "quality": "fast"})
+    assert r.status_code == 201 and r.json()["options"]["facecam"] == rect
+    assert _wait(client, f"/api/clips/{r.json()['id']}")["status"] == "done"
+    assert client.put(f"/api/videos/{vid}/layout", json={"facecam": None}).json() == {}
+    client.delete(f"/api/videos/{vid}")

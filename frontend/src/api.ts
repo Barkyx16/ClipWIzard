@@ -1,6 +1,19 @@
 export type VideoStatus = "uploaded" | "queued" | "analyzing" | "ready" | "failed";
 export type ClipStatus = "queued" | "rendering" | "done" | "failed";
-export type Aspect = "vertical_blur" | "vertical_smart" | "vertical_crop" | "square" | "landscape";
+export type Aspect =
+  | "vertical_blur"
+  | "vertical_smart"
+  | "vertical_facecam"
+  | "vertical_crop"
+  | "square"
+  | "landscape";
+
+export interface Rect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
 export type ClipLength = "short" | "medium" | "long";
 
 export interface AnalyzeSettings {
@@ -78,6 +91,7 @@ export interface Video {
   error: string | null;
   settings: AnalyzeSettings;
   ai_used: boolean;
+  layout: { facecam?: Rect };
   created_at: number;
   source_url: string;
   thumbnail_url: string | null;
@@ -144,6 +158,8 @@ export const api = {
   exportAll: (videoId: string, body: { aspect: Aspect; title_overlay: boolean; top: number }) =>
     request<Clip[]>(`/api/videos/${videoId}/export-all`, { method: "POST", body: JSON.stringify(body) }),
   deleteClip: (id: string) => request<void>(`/api/clips/${id}`, { method: "DELETE" }),
+  updateLayout: (videoId: string, layout: { facecam: Rect | null }) =>
+    request<{ facecam?: Rect }>(`/api/videos/${videoId}/layout`, { method: "PUT", body: JSON.stringify(layout) }),
   workspace: () => request<{ key: string }>("/api/workspace"),
   switchWorkspace: (key: string) =>
     request<{ ok: boolean; videos: number }>("/api/workspace", { method: "POST", body: JSON.stringify({ key }) }),

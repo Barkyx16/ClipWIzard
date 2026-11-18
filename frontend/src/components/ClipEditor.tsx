@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Check, Copy, Crosshair, Loader2, Minus, Plus, Scissors } from "lucide-react";
+import { Check, Copy, Crosshair, Loader2, Minus, Plus, ScanFace, Scissors, X } from "lucide-react";
 
 import { Aspect, Highlight } from "../api";
 import { formatTime, parseTime } from "../lib/format";
@@ -16,6 +16,7 @@ export interface EditorState {
 const ASPECTS: { value: Aspect; label: string; hint: string; w: number; h: number; tip: string }[] = [
   { value: "vertical_blur", label: "Blur fill", hint: "9:16", w: 9, h: 16, tip: "Whole frame over a blurred background" },
   { value: "vertical_smart", label: "Smart", hint: "9:16", w: 9, h: 16, tip: "Full-screen crop that pans to follow the action" },
+  { value: "vertical_facecam", label: "Facecam", hint: "9:16", w: 9, h: 16, tip: "Your facecam stacked above the gameplay" },
   { value: "vertical_crop", label: "Fixed", hint: "9:16", w: 9, h: 16, tip: "Full-screen crop at a position you choose" },
   { value: "square", label: "Square", hint: "1:1", w: 1, h: 1, tip: "1:1 with blurred background" },
   { value: "landscape", label: "Original", hint: "16:9", w: 16, h: 9, tip: "Keep the original shape" },
@@ -104,6 +105,10 @@ function CopyButton({ text }: { text: string }) {
 }
 
 interface Props {
+  hasFacecam: boolean;
+  drawingFacecam: boolean;
+  onMarkFacecam: () => void;
+  onClearFacecam: () => void;
   highlight: Highlight | null;
   state: EditorState;
   duration: number;
@@ -113,7 +118,19 @@ interface Props {
   onExport: () => void;
 }
 
-export default function ClipEditor({ highlight, state, duration, currentTime, exporting, onChange, onExport }: Props) {
+export default function ClipEditor({
+  highlight,
+  state,
+  duration,
+  currentTime,
+  exporting,
+  hasFacecam,
+  drawingFacecam,
+  onMarkFacecam,
+  onClearFacecam,
+  onChange,
+  onExport,
+}: Props) {
   const clamp = (t: number) => Math.min(Math.max(0, t), duration);
   const length = state.end - state.start;
   const invalid = length < 1 || length > 180;
@@ -161,7 +178,7 @@ export default function ClipEditor({ highlight, state, duration, currentTime, ex
 
       <div>
         <p className="label mb-2">Format</p>
-        <div className="grid grid-cols-5 gap-1.5">
+        <div className="grid grid-cols-3 gap-1.5">
           {ASPECTS.map((a) => (
             <button
               key={a.value}
@@ -177,7 +194,11 @@ export default function ClipEditor({ highlight, state, duration, currentTime, ex
                 <span
                   className={`block rounded-sm border-2 ${state.aspect === a.value ? "border-primary" : "border-dim"}`}
                   style={{ width: (a.w / Math.max(a.w, a.h)) * 32, height: (a.h / Math.max(a.w, a.h)) * 32 }}
-                />
+                >
+                  {a.value === "vertical_facecam" && (
+                    <span className={`block h-1/3 border-b-2 ${state.aspect === a.value ? "border-primary" : "border-dim"}`} />
+                  )}
+                </span>
                 {a.value === "vertical_smart" && <Sparkle />}
               </span>
               <span className="font-semibold">{a.label}</span>
@@ -185,6 +206,25 @@ export default function ClipEditor({ highlight, state, duration, currentTime, ex
             </button>
           ))}
         </div>
+        {state.aspect === "vertical_facecam" && (
+          <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-line bg-surface-2/60 p-3 text-sm">
+            <span className={`flex-1 ${hasFacecam ? "text-muted" : "text-warn"}`}>
+              {drawingFacecam
+                ? "Drag a box around your facecam on the video."
+                : hasFacecam
+                  ? "Facecam marked. It goes on top, gameplay below."
+                  : "Mark where your facecam is on the video first."}
+            </span>
+            <button type="button" className="btn-ghost px-3 py-1.5 text-xs" onClick={onMarkFacecam}>
+              <ScanFace className="h-4 w-4" /> {drawingFacecam ? "Cancel" : hasFacecam ? "Redraw" : "Mark facecam"}
+            </button>
+            {hasFacecam && !drawingFacecam && (
+              <button type="button" className="btn-icon h-8 w-8" aria-label="Remove facecam" onClick={onClearFacecam}>
+                <X className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+        )}
         {state.aspect === "vertical_smart" && (
           <p className="mt-2 text-xs text-muted">
             The crop pans to follow the action. Press play to preview the moving frame on the player.
@@ -236,7 +276,12 @@ export default function ClipEditor({ highlight, state, duration, currentTime, ex
         </div>
       )}
 
-      <button type="button" className="btn-primary w-full py-3" disabled={invalid || exporting} onClick={onExport}>
+      <button
+        type="button"
+        className="btn-primary w-full py-3"
+        disabled={invalid || exporting || (state.aspect === "vertical_facecam" && !hasFacecam)}
+        onClick={onExport}
+      >
         {exporting ? <Loader2 className="h-5 w-5 animate-spin" /> : <Scissors className="h-5 w-5" />}
         Export clip
       </button>

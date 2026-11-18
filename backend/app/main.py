@@ -30,7 +30,9 @@ from .workspace import (
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("clipwizard")
 
-Aspect = Literal["landscape", "vertical_blur", "vertical_crop", "vertical_smart", "square"]
+Aspect = Literal[
+    "landscape", "vertical_blur", "vertical_crop", "vertical_smart", "vertical_facecam", "square"
+]
 ALLOWED_EXTENSIONS = {".mp4", ".mov", ".mkv", ".webm", ".avi", ".m4v", ".ts", ".flv"}
 MAX_CLIP_SECONDS = 180
 
@@ -97,6 +99,23 @@ class ExportAll(BaseModel):
     quality: Literal["high", "fast"] = "high"
 
 
+class Rect(BaseModel):
+    x: float = Field(ge=0, le=1)
+    y: float = Field(ge=0, le=1)
+    w: float = Field(gt=0.02, le=1)
+    h: float = Field(gt=0.02, le=1)
+
+    @model_validator(mode="after")
+    def _inside(self) -> "Rect":
+        if self.x + self.w > 1.001 or self.y + self.h > 1.001:
+            raise ValueError("Rectangle must be inside the frame")
+        return self
+
+
+class LayoutUpdate(BaseModel):
+    facecam: Rect | None = None
+
+
 class WorkspaceSwitch(BaseModel):
     key: str = Field(min_length=32, max_length=64)
 
@@ -131,6 +150,7 @@ def video_out(v: dict[str, Any], include_children: bool = False) -> dict[str, An
         "error": v["error"],
         "settings": v["settings"],
         "ai_used": v["ai_used"],
+        "layout": v.get("layout") or {},
         "created_at": v["created_at"],
         "source_url": _media_url("uploads", v["filename"]),
         "thumbnail_url": _media_url("thumbs", v.get("thumbnail")),
@@ -321,6 +341,19 @@ def reanalyze(video_id: str, body: AnalyzeSettings, ws: str = Workspace) -> dict
     return video_out(db.get_video(video_id), include_children=True)  # type: ignore[arg-type]
 
 
+@app.put("/api/videos/{video_id}/layout")
+def update_layout(video_id: str, body: LayoutUpdate, ws: str = Workspace) -> dict[str, Any]:
+    """Save the facecam rectangle (normalised 0..1) used by the facecam layout."""
+    v = _video_or_404(video_id, ws)
+    layout = dict(v.get("layout") or {})
+    if body.facecam is None:
+        layout.pop("facecam", None)
+    else:
+        layout["facecam"] = body.facecam.model_dump()
+    db.update_video(video_id, layout=layout)
+    return layout
+
+
 @app.delete("/api/videos/{video_id}", status_code=204)
 def delete_video(video_id: str, ws: str = Workspace) -> None:
     v = _video_or_404(video_id, ws)
@@ -354,6 +387,11 @@ def _queue_clip(v: dict[str, Any], body: ClipCreate) -> dict[str, Any]:
         if h is None or h["video_id"] != v["id"]:
             raise HTTPException(404, "Highlight not found for this video")
     options = body.model_dump(include={"aspect", "crop_x", "title_overlay", "title", "quality"})
+    if body.aspect == "vertical_facecam":
+        facecam = (v.get("layout") or {}).get("facecam")
+        if not facecam:
+            raise HTTPException(422, "Mark your facecam on the video first")
+        options["facecam"] = facecam
     c = db.create_clip(video_id=v["id"], highlight_id=body.highlight_id, start=round(start, 3),
                        end=round(end, 3), options=options)
     jobs.submit(pipeline.render, c["id"])

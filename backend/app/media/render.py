@@ -16,6 +16,7 @@ ASPECTS = {
     "vertical_blur": (1080, 1920),
     "vertical_crop": (1080, 1920),
     "vertical_smart": (1080, 1920),
+    "vertical_facecam": (1080, 1920),
     "square": (1080, 1080),
 }
 
@@ -36,6 +37,8 @@ class RenderOptions:
     quality: str = "high"  # "high" or "fast"
     # vertical_smart: (seconds since clip start, crop centre 0..1) keyframes
     crop_keys: list[tuple[float, float]] = field(default_factory=list)
+    # vertical_facecam: facecam rectangle in source, normalised {x, y, w, h}
+    facecam: dict[str, float] | None = None
 
 
 def _escape_filter_path(p: Path | str) -> str:
@@ -68,7 +71,7 @@ def strip_unrenderable(text: str) -> str:
 
 
 def _title_filters(title: str, out_w: int, out_h: int, work: Path, font: str | None,
-                   layout: str) -> list[str]:
+                   layout: str, seam: int | None = None) -> list[str]:
     width_chars = 22 if out_w < out_h else 34
     lines = textwrap.wrap(strip_unrenderable(title), width=width_chars)[:3]
     if not lines:
@@ -80,6 +83,9 @@ def _title_filters(title: str, out_w: int, out_h: int, work: Path, font: str | N
         fg_h = out_w * 9 / 16
         band_bottom = (out_h - fg_h) / 2
         top = int(band_bottom - line_h * len(lines) - out_h * 0.03)
+    elif layout == "facecam" and seam is not None:
+        # Straddle the seam between the facecam and the gameplay.
+        top = int(seam - line_h * len(lines) / 2)
     else:
         top = int(out_h * 0.07)
     filters = []
@@ -104,11 +110,45 @@ def _title_filters(title: str, out_w: int, out_h: int, work: Path, font: str | N
     return filters
 
 
+def _facecam_graph(src_w: int, src_h: int, out_w: int, out_h: int,
+                   opts: RenderOptions) -> tuple[str, int]:
+    """Facecam stacked on top of a full-width gameplay crop."""
+    fc = opts.facecam or {}
+    fx = int(min(max(fc.get("x", 0.0), 0.0), 0.95) * src_w)
+    fy = int(min(max(fc.get("y", 0.0), 0.0), 0.95) * src_h)
+    fw = _even(max(16, min(fc.get("w", 0.25) * src_w, src_w - fx)))
+    fh = _even(max(16, min(fc.get("h", 0.25) * src_h, src_h - fy)))
+    # Top panel keeps roughly the facecam's shape, within sensible bounds.
+    top_h = _even(min(max(out_w * fh / fw, out_h * 0.25), out_h * 0.45))
+    bot_h = out_h - top_h
+    target = out_w / bot_h
+    if src_w / src_h > target:
+        gw, gh = _even(src_h * target), _even(src_h)
+        if opts.crop_keys:
+            gx: int | str = "'" + crop_x_expression(opts.crop_keys, src_w, gw) + "'"
+        else:
+            gx = int((src_w - gw) / 2)
+        gy = 0
+    else:
+        gw, gh = _even(src_w), _even(src_w / target)
+        gx, gy = 0, int((src_h - gh) / 2)
+    graph = (
+        "[0:v]split=2[camsrc][gamesrc];"
+        f"[camsrc]crop={fw}:{fh}:{fx}:{fy},scale={out_w}:{top_h}:force_original_aspect_ratio=increase:"
+        f"flags=lanczos,crop={out_w}:{top_h}[cam];"
+        f"[gamesrc]crop={gw}:{gh}:{gx}:{gy},scale={out_w}:{bot_h}:flags=lanczos[game];"
+        f"[cam][game]vstack=inputs=2,drawbox=x=0:y={top_h - 3}:w={out_w}:h=6:color=black@0.9:t=fill,"
+        "setsar=1[base]"
+    )
+    return graph, top_h
+
+
 def build_command(src: Path, out: Path, start: float, end: float, src_w: int, src_h: int,
                   has_audio: bool, opts: RenderOptions, work: Path,
                   font: str | None) -> list[str]:
     duration = max(0.5, end - start)
     out_w, out_h = ASPECTS.get(opts.aspect, ASPECTS["vertical_blur"])
+    seam = 0
 
     if opts.aspect == "landscape":
         # Keep the source aspect ratio, cap at 1080p.
@@ -116,6 +156,8 @@ def build_command(src: Path, out: Path, start: float, end: float, src_w: int, sr
         out_h = _even(scale_h)
         out_w = _even(src_w * out_h / max(1, src_h))
         graph = f"[0:v]scale={out_w}:{out_h}:flags=lanczos,setsar=1[base]"
+    elif opts.aspect == "vertical_facecam" and opts.facecam:
+        graph, seam = _facecam_graph(src_w, src_h, out_w, out_h, opts)
     elif opts.aspect in ("vertical_crop", "vertical_smart"):
         target = out_w / out_h
         if src_w / src_h > target:
@@ -141,7 +183,9 @@ def build_command(src: Path, out: Path, start: float, end: float, src_w: int, sr
             "[bg][fg]overlay=(W-w)/2:(H-h)/2,setsar=1[base]"
         )
 
-    titles = _title_filters(opts.title, out_w, out_h, work, font, opts.aspect) if opts.title else []
+    layout = "facecam" if opts.aspect == "vertical_facecam" and opts.facecam else opts.aspect
+    titles = _title_filters(opts.title, out_w, out_h, work, font, layout,
+                            seam=seam if layout == "facecam" else None) if opts.title else []
     if titles:
         graph += ";[base]" + ",".join(titles) + "[vout]"
     else:

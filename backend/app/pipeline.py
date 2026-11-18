@@ -186,8 +186,11 @@ def render(clip_id: str) -> None:
         crop_x=float(o.get("crop_x", 0.5)),
         title=(o.get("title") or None) if o.get("title_overlay") else None,
         quality=str(o.get("quality", "high")),
+        facecam=o.get("facecam") or None,
     )
-    if opts.aspect == "vertical_smart":
+    if opts.aspect == "vertical_facecam" and not opts.facecam:
+        opts.aspect = "vertical_smart"  # no facecam marked: fall back to a smart crop
+    if opts.aspect in ("vertical_smart", "vertical_facecam"):
         loaded = load_camera_path(video["id"])
         if loaded is not None:
             path, hop = loaded
