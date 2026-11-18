@@ -42,7 +42,7 @@ export default function CaptionReview({ review, stale, onStart, onEdit, onReset 
   if (review.status === "failed") {
     return (
       <div className="flex items-center justify-between gap-2 text-xs">
-        <span className="text-bad">{review.error ?? "Couldn't transcribe this clip"}</span>
+        <span className="text-bad">{capitalize(review.error ?? "couldn't transcribe this clip")}</span>
         <button type="button" className="btn-ghost shrink-0 px-2.5 py-1 text-xs" onClick={onStart}>
           Try again
         </button>
@@ -88,3 +88,5 @@ export default function CaptionReview({ review, stale, onStart, onEdit, onReset 
     </div>
   );
 }
+
+const capitalize = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
