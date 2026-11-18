@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
-import { AudioWaveform, Crosshair, Scissors, Wand2 } from "lucide-react";
+import { AudioWaveform, Crosshair, Scissors, Search, Wand2 } from "lucide-react";
 
 import { api, Health, isBusy, Video } from "../api";
 import UploadCard from "../components/UploadCard";
+import Faq from "../components/Faq";
 import VideoCard from "../components/VideoCard";
 import { usePolling } from "../lib/usePolling";
 
@@ -28,6 +29,7 @@ export default function HomePage() {
   const [health, setHealth] = useState<Health | null>(null);
   const [videos, setVideos] = useState<Video[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
 
   const load = useCallback(async () => {
     try {
@@ -95,7 +97,20 @@ export default function HomePage() {
           <h2 id="projects-heading" className="font-display text-4xl tracking-wide">
             Your sessions
           </h2>
-          {videos && videos.length > 0 && <span className="text-sm text-muted">{videos.length} uploaded</span>}
+          {videos && videos.length > 4 ? (
+            <label className="relative w-56">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-dim" />
+              <input
+                className="input pl-9"
+                placeholder="Search sessions"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                aria-label="Search sessions"
+              />
+            </label>
+          ) : (
+            videos && videos.length > 0 && <span className="text-sm text-muted">{videos.length} uploaded</span>
+          )}
         </div>
         {error && (
           <p className="rounded-lg border border-bad/40 bg-bad/10 px-3 py-2 text-sm text-bad" role="alert">
@@ -114,12 +129,16 @@ export default function HomePage() {
           </div>
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {videos?.map((v) => (
-              <VideoCard key={v.id} video={v} onDelete={remove} />
-            ))}
+            {videos
+              ?.filter((v) => !query.trim() || v.name.toLowerCase().includes(query.trim().toLowerCase()))
+              .map((v) => (
+                <VideoCard key={v.id} video={v} onDelete={remove} />
+              ))}
           </div>
         )}
       </section>
+
+      <Faq health={health} />
     </div>
   );
 }

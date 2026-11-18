@@ -130,6 +130,7 @@ export interface Health {
   allowed_extensions: string[];
   captions_available: boolean;
   import_sites: string[];
+  retention_days?: number;
 }
 
 export class ApiError extends Error {
