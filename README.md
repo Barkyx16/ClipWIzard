@@ -1,5 +1,7 @@
 # ClipWizard
 
+[![CI](https://github.com/Barkyx16/ClipWIzard/actions/workflows/ci.yml/badge.svg)](https://github.com/Barkyx16/ClipWIzard/actions/workflows/ci.yml)
+
 **AI clipping for GTA 6 creators.** Upload a gameplay recording or paste a Twitch/YouTube VOD link. ClipWizard finds
 the shootouts, explosions, crashes, chases and hype moments, ranks them, and exports vertical clips with captions,
 ready for TikTok, YouTube Shorts and Instagram Reels.
@@ -35,7 +37,10 @@ ready for TikTok, YouTube Shorts and Instagram Reels.
   - 1:1 square
   - original 16:9
 - **Auto captions.** Word-by-word, TikTok-style subtitles from voice chat and commentary, with the spoken word
-  highlighted.
+  highlighted. Three styles (Bold, Neon, Clean) and adjustable height. **Review words** lets you fix misheard
+  words before exporting.
+- **Slow-mo instant replay.** The clip ends with a white flash and its peak moment replayed at half speed.
+- **Even volume.** Exports are loudness-normalized to about -14 LUFS, the level TikTok, Shorts and Reels play at.
 - **Burned-in title and channel-handle watermark.**
 - **Montage builder.** Stitch the best moments into one compilation with crossfades, fades to black, slides or hard
   cuts.
@@ -46,6 +51,7 @@ ready for TikTok, YouTube Shorts and Instagram Reels.
     <kbd>J</kbd>/<kbd>L</kbd> ±10s, <kbd>[</kbd>/<kbd>]</kbd> previous/next highlight
 - **Share links.** One click creates a private link to a finished clip that you can open on your phone to post, or send
   to a friend. Links can be revoked.
+- **Download all.** Every finished clip of a session in one zip.
 
 **Privacy**
 - **Private workspaces.** Each browser gets its own anonymous workspace, and visitors only see their own uploads,
@@ -102,9 +108,17 @@ All settings are environment variables. Put them in `.env` (see [`.env.example`]
 | `CLIPWIZARD_MAX_IMPORT_HOURS` | `6` | Longest VOD that can be imported from a link |
 | `CLIPWIZARD_UPLOAD_CHUNK_MB` | `16` | Chunk size for resumable uploads |
 | `CLIPWIZARD_RETENTION_DAYS` | `0` (keep forever) | Delete sessions idle for this many days. Set this on public servers |
+| `CLIPWIZARD_MAX_ACTIVE_VIDEOS` | `3` | Videos one workspace can have processing at once (0 = unlimited) |
+| `CLIPWIZARD_MAX_ACTIVE_RENDERS` | `12` | Clips one workspace can have rendering at once (0 = unlimited) |
+| `CLIPWIZARD_WORKSPACE_QUOTA_GB` | `0` (unlimited) | Storage limit per workspace |
+| `CLIPWIZARD_FFMPEG_STALL_SECONDS` | `180` | Kill an ffmpeg job that makes no progress for this long |
+| `CLIPWIZARD_IMPORT_USE_PROXY` | off | Set to `1` if the server must reach the internet through an HTTP proxy |
 | `CLIPWIZARD_WORKERS` | `2` | Background jobs that run in parallel |
 | `CLIPWIZARD_FONT` | DejaVu Sans Bold | TTF used for burned-in titles |
 | `CLIPWIZARD_CORS_ORIGINS` | none | Only needed if the UI is hosted on another origin |
+
+For local testing without the speech model, `CLIPWIZARD_FAKE_TRANSCRIBE=1` returns a canned transcript. Never set it in
+production.
 
 AI enrichment sends about five 640px keyframes per highlight to the Anthropic API, so it costs a little per video.
 Lower `CLIPWIZARD_AI_MAX_HIGHLIGHTS` to cap the cost.
@@ -157,8 +171,11 @@ and memory use stays flat regardless of length.
 | `POST` | `/api/videos/{id}/reanalyze` | Re-scan with new settings |
 | `PUT` | `/api/videos/{id}/layout` | Save the facecam rectangle |
 | `POST` / `PATCH` / `DELETE` | `/api/videos/{id}/highlights` · `/api/highlights/{id}` | Custom, edited and removed highlights |
+| `PATCH` | `/api/videos/{id}` | Rename a session |
 | `POST` | `/api/videos/{id}/clips` · `/export-all` · `/montage` | Render a clip, the top N, or a montage |
+| `POST` / `GET` | `/api/videos/{id}/transcripts` · `/api/transcripts/{id}` | Transcribe a range for caption review |
 | `GET` / `DELETE` | `/api/clips/{id}` · `/api/clips/{id}/download` | Clip status, download, delete |
+| `GET` | `/api/videos/{id}/clips.zip` | All finished clips in one zip |
 | `POST` / `DELETE` | `/api/clips/{id}/share` | Turn a share link on or off |
 | `GET` / `POST` | `/api/workspace` | Show the workspace key, or open another workspace |
 
@@ -170,7 +187,7 @@ the only public routes, and they only exist while a clip is shared.
 This MVP runs on a single server. Before a large public launch, you'll want:
 
 - **Accounts** (email or Discord/Twitch login) on top of the anonymous workspaces, plus storage quotas per user.
-- **Rate limits** on uploads, imports and renders.
+- **Rate limits per IP** on top of the per-workspace job and storage limits that already exist.
 - **A real job queue** (RQ, Celery or Arq) and object storage (S3 or R2) to scale past one machine. Background jobs
   currently run inside the API process.
 - **Sandboxed media processing.** ffmpeg and yt-dlp handle untrusted input, so run them with tight CPU, memory and
@@ -181,5 +198,4 @@ This MVP runs on a single server. Before a large public launch, you'll want:
 
 - Reaction detection from facecam audio (laughs, screams) as an extra highlight signal
 - Per-game tuning once real GTA 6 footage is available
-- Editable captions before export
 - Direct publishing to TikTok, YouTube Shorts and Instagram
