@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Bot, FileVideo, Files, Link2, Loader2, UploadCloud, X, Zap } from "lucide-react";
+import { Bot, ChevronRight, FileVideo, Files, Link2, Loader2, UploadCloud, X, Zap } from "lucide-react";
 
 import { AnalyzeSettings, api, ApiError, ClipLength, Health, UploadHandle, uploadVideo, Video } from "../api";
 import { formatBytes } from "../lib/format";
@@ -334,29 +334,42 @@ export default function UploadCard({
         </div>
       )}
 
-      <div className="mt-5 grid gap-5 sm:grid-cols-2">
-        <div>
-          <p className="label mb-2">Clip length</p>
-          <div className="grid grid-cols-3 gap-1 rounded-xl border border-line bg-surface-2 p-1">
-            {LENGTHS.map((l) => (
-              <button
-                key={l.value}
-                type="button"
-                disabled={uploading}
-                onClick={() => setSettings((s) => ({ ...s, length: l.value }))}
-                className={`rounded-lg px-2 py-1.5 text-sm transition ${
-                  settings.length === l.value
-                    ? "bg-gradient-brand font-semibold text-on-primary"
-                    : "text-muted hover:text-ink"
-                }`}
-              >
-                {l.label}
-                <span className="block text-[10px] opacity-80">{l.hint}</span>
-              </button>
-            ))}
-          </div>
+      <div className="mt-5">
+        <p className="label mb-2">Clip length</p>
+        <div className="grid grid-cols-3 gap-1 rounded-xl border border-line bg-surface-2 p-1">
+          {LENGTHS.map((l) => (
+            <button
+              key={l.value}
+              type="button"
+              disabled={uploading}
+              onClick={() => setSettings((s) => ({ ...s, length: l.value }))}
+              className={`rounded-lg px-2 py-1.5 text-sm transition ${
+                settings.length === l.value
+                  ? "bg-gradient-brand font-semibold text-on-primary"
+                  : "text-muted hover:text-ink"
+              }`}
+            >
+              {l.label}
+              <span className="block text-[10px] opacity-80">{l.hint}</span>
+            </button>
+          ))}
         </div>
-        <div className="space-y-3">
+      </div>
+
+      <details className="group mt-3">
+        <summary className="flex cursor-pointer list-none items-center gap-1.5 text-xs font-semibold text-muted hover:text-ink">
+          <ChevronRight className="h-3.5 w-3.5 transition group-open:rotate-90" /> Fine-tune detection
+          <span className="font-normal text-dim">
+            ({settings.max_clips} clips max ·{" "}
+            {settings.sensitivity < 0.34
+              ? "only bangers"
+              : settings.sensitivity < 0.67
+                ? "balanced"
+                : "catch everything"}
+            )
+          </span>
+        </summary>
+        <div className="mt-3 space-y-3">
           <label className="block">
             <span className="label flex justify-between">
               Max clips <span className="text-ink">{settings.max_clips}</span>
@@ -394,7 +407,7 @@ export default function UploadCard({
             />
           </label>
         </div>
-      </div>
+      </details>
 
       <div className="mt-5 flex items-start gap-3 rounded-xl border border-line bg-surface-2 p-3">
         <input
