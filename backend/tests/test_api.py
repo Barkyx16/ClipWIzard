@@ -304,3 +304,41 @@ def test_retention_cleanup(client, demo_video):
     removed = retention.cleanup_once(days=1, now=_time.time() + 2 * 86400)
     assert removed >= 1
     assert db.get_video(vid) is None and not upload.exists()
+
+
+def test_share_links(client, demo_video):
+    from app.main import app
+
+    vid = _upload(client, demo_video, max_clips=1).json()["id"]
+    video = _wait(client, f"/api/videos/{vid}")
+    h = video["highlights"][0]
+    r = client.post(f"/api/videos/{vid}/clips", json={
+        "highlight_id": h["id"], "start": h["start"], "end": h["start"] + 2, "quality": "fast"})
+    clip_id = r.json()["id"]
+    clip = _wait(client, f"/api/clips/{clip_id}")
+    assert clip["share_url"] is None
+
+    shared = client.post(f"/api/clips/{clip_id}/share").json()
+    url = shared["share_url"]
+    assert url.startswith("/s/")
+    token = url.split("/")[-1]
+    # Sharing twice keeps the same link.
+    assert client.post(f"/api/clips/{clip_id}/share").json()["share_url"] == url
+
+    with TestClient(app) as stranger:
+        info = stranger.get(f"/api/share/{token}")
+        assert info.status_code == 200
+        assert info.headers["x-robots-tag"].startswith("noindex")
+        assert info.json()["title"] == h["title"]
+        video_resp = stranger.get(info.json()["video_url"])
+        assert video_resp.status_code == 200 and video_resp.headers["content-type"] == "video/mp4"
+        dl = stranger.get(info.json()["download_url"])
+        assert "attachment" in dl.headers["content-disposition"]
+        # A stranger can't manage the share.
+        assert stranger.delete(f"/api/clips/{clip_id}/share").status_code == 404
+        assert stranger.get("/api/share/not-a-real-token-123456").status_code == 404
+
+        assert client.delete(f"/api/clips/{clip_id}/share").json()["share_url"] is None
+        assert stranger.get(f"/api/share/{token}").status_code == 404
+        assert stranger.get(f"/share/{token}/video.mp4").status_code == 404
+    client.delete(f"/api/videos/{vid}")

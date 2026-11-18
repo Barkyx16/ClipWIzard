@@ -6,6 +6,7 @@ import asyncio
 import logging
 import os
 import re
+import secrets
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Literal
@@ -240,6 +241,7 @@ def clip_out(c: dict[str, Any]) -> dict[str, Any]:
         "warning": c.get("warning"),
         "created_at": c["created_at"],
         "url": _media_url("clips", c.get("filename")),
+        "share_url": f"/s/{c['share_token']}" if c.get("share_token") else None,
         "download_url": f"/api/clips/{c['id']}/download" if c.get("filename") else None,
     }
 
@@ -729,6 +731,73 @@ def download_clip(clip_id: str, ws: str = Workspace) -> FileResponse:
     return FileResponse(path, media_type="video/mp4", filename=f"clipwizard-{slug}-{clip_id}.mp4")
 
 
+@app.post("/api/clips/{clip_id}/share")
+def share_clip(clip_id: str, ws: str = Workspace) -> dict[str, Any]:
+    """Create (or return) a public, unguessable link to a finished clip."""
+    c = _clip_or_404(clip_id, ws)
+    if c["status"] != "done":
+        raise HTTPException(409, "The clip isn't finished yet")
+    if not c.get("share_token"):
+        db.update_clip(clip_id, share_token=secrets.token_urlsafe(16))
+    return clip_out(db.get_clip(clip_id))  # type: ignore[arg-type]
+
+
+@app.delete("/api/clips/{clip_id}/share")
+def unshare_clip(clip_id: str, ws: str = Workspace) -> dict[str, Any]:
+    _clip_or_404(clip_id, ws)
+    db.update_clip(clip_id, share_token=None)
+    return clip_out(db.get_clip(clip_id))  # type: ignore[arg-type]
+
+
+NOINDEX = {"X-Robots-Tag": "noindex, nofollow", "Referrer-Policy": "no-referrer"}
+
+
+def _shared_clip(token: str) -> tuple[dict[str, Any], Path]:
+    if not re.fullmatch(r"[A-Za-z0-9_-]{16,64}", token):
+        raise HTTPException(404, "This link doesn't exist or was turned off")
+    c = db.clip_by_share_token(token)
+    if c is None or c["status"] != "done" or not c.get("filename"):
+        raise HTTPException(404, "This link doesn't exist or was turned off")
+    path = pipeline.safe_path(get_settings().clips_dir, c["filename"])
+    if path is None:
+        raise HTTPException(404, "This link doesn't exist or was turned off")
+    return c, path
+
+
+@app.get("/api/share/{token}")
+def shared_info(token: str, response: Response) -> dict[str, Any]:
+    """Public metadata for a shared clip (no workspace needed)."""
+    c, _ = _shared_clip(token)
+    response.headers.update(NOINDEX)
+    o = c.get("options") or {}
+    h = db.get_highlight(c["highlight_id"]) if c.get("highlight_id") else None
+    if o.get("kind") == "montage":
+        title = f"Top {len(o.get('segments') or [])} moments"
+    else:
+        title = (h["title"] if h else None) or o.get("title") or "GTA 6 clip"
+    return {
+        "title": title,
+        "caption": h["caption"] if h else None,
+        "hashtags": h["hashtags"] if h else ["gta6", "gtavi", "gaming"],
+        "duration": round(c["end"] - c["start"], 2),
+        "aspect": o.get("aspect"),
+        "video_url": f"/share/{token}/video.mp4",
+        "download_url": f"/share/{token}/download",
+    }
+
+
+@app.get("/share/{token}/video.mp4", include_in_schema=False)
+def shared_video(token: str) -> FileResponse:
+    _, path = _shared_clip(token)
+    return FileResponse(path, media_type="video/mp4", headers={**NOINDEX, "Cache-Control": "public, max-age=3600"})
+
+
+@app.get("/share/{token}/download", include_in_schema=False)
+def shared_download(token: str) -> FileResponse:
+    c, path = _shared_clip(token)
+    return FileResponse(path, media_type="video/mp4", filename=f"clipwizard-{c['id']}.mp4", headers=NOINDEX)
+
+
 @app.delete("/api/clips/{clip_id}", status_code=204)
 def delete_clip(clip_id: str, ws: str = Workspace) -> None:
     c = _clip_or_404(clip_id, ws)
@@ -777,7 +846,7 @@ if (_frontend / "index.html").exists():
 
     @app.get("/{path:path}", include_in_schema=False)
     def spa(path: str) -> FileResponse:
-        if path.startswith(("api/", "media/")):
+        if path.startswith(("api/", "media/", "share/")):
             raise HTTPException(404)
         candidate = (_frontend / path).resolve()
         if path and candidate.is_file() and candidate.is_relative_to(_frontend.resolve()):

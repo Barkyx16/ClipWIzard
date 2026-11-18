@@ -597,7 +597,17 @@ export default function ProjectPage() {
             ) : (
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4">
                 {clips.map((c) => (
-                  <ExportCard key={c.id} clip={c} title={clipTitle(c)} onDelete={deleteClip} />
+                  <ExportCard
+                    key={c.id}
+                    clip={c}
+                    title={clipTitle(c)}
+                    onDelete={deleteClip}
+                    onChange={(updated) =>
+                      setVideo((v) =>
+                        v ? { ...v, clips: (v.clips ?? []).map((x) => (x.id === updated.id ? updated : x)) } : v,
+                      )
+                    }
+                  />
                 ))}
               </div>
             )}

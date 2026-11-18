@@ -126,6 +126,7 @@ MIGRATIONS = [
     ("clips", "transcript", "TEXT"),
     ("clips", "warning", "TEXT"),
     ("videos", "import_url", "TEXT"),
+    ("clips", "share_token", "TEXT"),
 ]
 
 
@@ -138,6 +139,7 @@ def init_db() -> None:
             if column not in cols:
                 conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_videos_workspace ON videos(workspace)")
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_clips_share ON clips(share_token)")
 
 
 def _row(row: sqlite3.Row | None) -> dict[str, Any] | None:
@@ -368,6 +370,11 @@ def list_clips(video_id: str) -> list[dict[str, Any]]:
 def update_clip(clip_id: str, **fields: Any) -> None:
     fields["updated_at"] = time.time()
     _update("clips", clip_id, fields)
+
+
+def clip_by_share_token(token: str) -> dict[str, Any] | None:
+    with connect() as conn:
+        return _row(conn.execute("SELECT * FROM clips WHERE share_token = ?", (token,)).fetchone())
 
 
 def delete_clip(clip_id: str) -> None:

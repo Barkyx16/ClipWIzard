@@ -75,6 +75,17 @@ export interface Clip {
   created_at: number;
   url: string | null;
   download_url: string | null;
+  share_url: string | null;
+}
+
+export interface SharedClip {
+  title: string;
+  caption: string | null;
+  hashtags: string[];
+  duration: number;
+  aspect: Aspect | null;
+  video_url: string;
+  download_url: string;
 }
 
 export interface Video {
@@ -186,6 +197,9 @@ export const api = {
     },
   ) => request<Clip>(`/api/videos/${videoId}/montage`, { method: "POST", body: JSON.stringify(body) }),
   deleteClip: (id: string) => request<void>(`/api/clips/${id}`, { method: "DELETE" }),
+  shareClip: (id: string) => request<Clip>(`/api/clips/${id}/share`, { method: "POST" }),
+  unshareClip: (id: string) => request<Clip>(`/api/clips/${id}/share`, { method: "DELETE" }),
+  shared: (token: string) => request<SharedClip>(`/api/share/${token}`),
   updateLayout: (videoId: string, layout: { facecam: Rect | null }) =>
     request<{ facecam?: Rect }>(`/api/videos/${videoId}/layout`, { method: "PUT", body: JSON.stringify(layout) }),
   workspace: () => request<{ key: string }>("/api/workspace"),

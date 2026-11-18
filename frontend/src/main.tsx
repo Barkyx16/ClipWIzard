@@ -9,6 +9,7 @@ import { BrowserRouter, Route, Routes } from "react-router-dom";
 import Layout from "./components/Layout";
 import HomePage from "./pages/HomePage";
 import ProjectPage from "./pages/ProjectPage";
+import SharePage from "./pages/SharePage";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
@@ -18,6 +19,7 @@ createRoot(document.getElementById("root")!).render(
           <Route index element={<HomePage />} />
           <Route path="/videos/:id" element={<ProjectPage />} />
         </Route>
+        <Route path="/s/:token" element={<SharePage />} />
       </Routes>
     </BrowserRouter>
   </StrictMode>,
