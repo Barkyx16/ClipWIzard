@@ -1,0 +1,18 @@
+# Replace clips.example.com with your domain (its DNS A/AAAA record must point at this server).
+# Caddy gets and renews the HTTPS certificate automatically.
+clips.example.com {
+	encode gzip zstd
+
+	# Big VOD uploads arrive in 16 MB chunks; allow some headroom.
+	request_body {
+		max_size 80MB
+	}
+
+	reverse_proxy clipwizard:8000 {
+		# Long-running requests (zip downloads, single-request uploads).
+		transport http {
+			read_timeout 30m
+			write_timeout 30m
+		}
+	}
+}

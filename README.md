@@ -72,6 +72,8 @@ docker compose up --build
 Open http://localhost:8000. The first export with captions downloads the speech model (about 150 MB), which is then
 cached on the data volume.
 
+Putting it on the internet? See **[docs/DEPLOY.md](docs/DEPLOY.md)** for a production setup with HTTPS.
+
 ### Local development
 
 Requirements: Python 3.11+, Node 20+, and `ffmpeg` / `ffprobe` on your PATH.

@@ -1,0 +1,36 @@
+# Production stack: ClipWizard behind Caddy (automatic HTTPS).
+# Usage (from the repository root):
+#   cp .env.example .env   # then edit it (see docs/DEPLOY.md)
+#   docker compose -f deploy/docker-compose.prod.yml up -d --build
+services:
+  clipwizard:
+    build: ..
+    env_file:
+      - path: ../.env
+        required: false
+    environment:
+      CLIPWIZARD_TRUST_PROXY: "1"
+    volumes:
+      - clipwizard-data:/data
+    restart: unless-stopped
+    expose:
+      - "8000"
+
+  caddy:
+    image: caddy:2
+    depends_on:
+      - clipwizard
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    restart: unless-stopped
+
+volumes:
+  clipwizard-data:
+  caddy-data:
+  caddy-config:
