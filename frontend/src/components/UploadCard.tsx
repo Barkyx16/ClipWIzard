@@ -221,7 +221,7 @@ export default function UploadCard({ health }: { health: Health | null }) {
                 onClick={() => setSettings((s) => ({ ...s, length: l.value }))}
                 className={`rounded-lg px-2 py-1.5 text-sm transition ${
                   settings.length === l.value
-                    ? "bg-gradient-brand font-semibold text-white"
+                    ? "bg-gradient-brand font-semibold text-on-primary"
                     : "text-muted hover:text-ink"
                 }`}
               >

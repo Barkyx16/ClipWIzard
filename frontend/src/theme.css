@@ -16,12 +16,12 @@
   /* Text */
   --color-ink: #f4f0ff;
   --color-muted: #a59cc4;
-  --color-dim: #6f6690;
+  --color-dim: #8b81ad; /* >= 4.5:1 on every surface (WCAG AA) */
 
   /* Brand: primary buttons/gradients run from primary to primary-2 */
   --color-primary: #ff3d8b;
   --color-primary-2: #ff9a3c;
-  --color-on-primary: #ffffff;
+  --color-on-primary: #150a1f; /* dark text keeps >= 5.7:1 on the whole brand gradient */
   /* Secondary accent: focus rings, selection, active states */
   --color-accent: #2de2e6;
 
