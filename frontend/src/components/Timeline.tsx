@@ -1,0 +1,107 @@
+import { useMemo, useRef } from "react";
+
+import { Highlight, Timeline as TimelineData } from "../api";
+import { formatTime } from "../lib/format";
+
+interface Props {
+  data: TimelineData | null;
+  duration: number;
+  highlights: Highlight[];
+  selectedId: string | null;
+  currentTime: number;
+  range: { start: number; end: number } | null;
+  onSeek: (t: number) => void;
+  onSelect: (h: Highlight) => void;
+}
+
+const H = 80;
+
+export default function Timeline({ data, duration, highlights, selectedId, currentTime, range, onSeek, onSelect }: Props) {
+  const ref = useRef<HTMLDivElement>(null);
+
+  const path = useMemo(() => {
+    const pts = data?.excitement ?? [];
+    if (pts.length < 2) return "";
+    const step = 1000 / (pts.length - 1);
+    let d = `M0,${H}`;
+    pts.forEach((v, i) => {
+      d += ` L${(i * step).toFixed(2)},${(H - 4 - v * (H - 10)).toFixed(2)}`;
+    });
+    return d + ` L1000,${H} Z`;
+  }, [data]);
+
+  const x = (t: number) => `${(Math.min(Math.max(t / Math.max(duration, 0.001), 0), 1) * 100).toFixed(3)}%`;
+
+  const seekFromEvent = (clientX: number) => {
+    const rect = ref.current?.getBoundingClientRect();
+    if (!rect) return;
+    onSeek(Math.min(Math.max((clientX - rect.left) / rect.width, 0), 1) * duration);
+  };
+
+  const ticks = useMemo(() => {
+    const count = 6;
+    return Array.from({ length: count + 1 }, (_, i) => (duration * i) / count);
+  }, [duration]);
+
+  return (
+    <div>
+      <div
+        ref={ref}
+        className="relative h-20 cursor-pointer select-none overflow-hidden rounded-xl border border-line bg-surface-2"
+        onClick={(e) => seekFromEvent(e.clientX)}
+        role="slider"
+        aria-label="Video timeline"
+        aria-valuemin={0}
+        aria-valuemax={Math.round(duration)}
+        aria-valuenow={Math.round(currentTime)}
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (e.key === "ArrowRight") onSeek(Math.min(duration, currentTime + 5));
+          if (e.key === "ArrowLeft") onSeek(Math.max(0, currentTime - 5));
+        }}
+      >
+        <svg viewBox={`0 0 1000 ${H}`} preserveAspectRatio="none" className="absolute inset-0 h-full w-full">
+          <defs>
+            <linearGradient id="exc" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stopColor="#ff3d8b" stopOpacity="0.9" />
+              <stop offset="1" stopColor="#ff9a3c" stopOpacity="0.15" />
+            </linearGradient>
+          </defs>
+          {path && <path d={path} fill="url(#exc)" />}
+        </svg>
+
+        {highlights.map((h) => (
+          <button
+            key={h.id}
+            type="button"
+            title={`#${h.rank + 1} ${h.title}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              onSelect(h);
+            }}
+            className={`absolute top-0 h-full border-x transition ${
+              h.id === selectedId ? "border-teal bg-teal/25" : "border-white/20 bg-white/5 hover:bg-white/15"
+            }`}
+            style={{ left: x(h.start), width: `calc(${x(h.end)} - ${x(h.start)})` }}
+          >
+            <span className="absolute left-1 top-1 rounded bg-black/70 px-1 text-[10px] font-bold">{h.rank + 1}</span>
+          </button>
+        ))}
+
+        {range && (
+          <div
+            className="pointer-events-none absolute top-0 h-full border-2 border-teal"
+            style={{ left: x(range.start), width: `calc(${x(range.end)} - ${x(range.start)})` }}
+          />
+        )}
+
+        <div className="pointer-events-none absolute top-0 h-full w-0.5 bg-white shadow-[0_0_8px_white]" style={{ left: x(currentTime) }} />
+      </div>
+      <div className="mt-1 flex justify-between text-[10px] text-dim">
+        {ticks.map((t, i) => (
+          <span key={i}>{formatTime(t)}</span>
+        ))}
+      </div>
+    </div>
+  );
+}
