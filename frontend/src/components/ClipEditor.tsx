@@ -15,10 +15,38 @@ export interface EditorState {
 }
 
 const ASPECTS: { value: Aspect; label: string; hint: string; w: number; h: number; tip: string }[] = [
-  { value: "vertical_blur", label: "Blur fill", hint: "9:16", w: 9, h: 16, tip: "Whole frame over a blurred background" },
-  { value: "vertical_smart", label: "Smart", hint: "9:16", w: 9, h: 16, tip: "Full-screen crop that pans to follow the action" },
-  { value: "vertical_facecam", label: "Facecam", hint: "9:16", w: 9, h: 16, tip: "Your facecam stacked above the gameplay" },
-  { value: "vertical_crop", label: "Fixed", hint: "9:16", w: 9, h: 16, tip: "Full-screen crop at a position you choose" },
+  {
+    value: "vertical_blur",
+    label: "Blur fill",
+    hint: "9:16",
+    w: 9,
+    h: 16,
+    tip: "Whole frame over a blurred background",
+  },
+  {
+    value: "vertical_smart",
+    label: "Smart",
+    hint: "9:16",
+    w: 9,
+    h: 16,
+    tip: "Full-screen crop that pans to follow the action",
+  },
+  {
+    value: "vertical_facecam",
+    label: "Facecam",
+    hint: "9:16",
+    w: 9,
+    h: 16,
+    tip: "Your facecam stacked above the gameplay",
+  },
+  {
+    value: "vertical_crop",
+    label: "Fixed",
+    hint: "9:16",
+    w: 9,
+    h: 16,
+    tip: "Full-screen crop at a position you choose",
+  },
   { value: "square", label: "Square", hint: "1:1", w: 1, h: 1, tip: "1:1 with blurred background" },
   { value: "landscape", label: "Original", hint: "16:9", w: 16, h: 9, tip: "Keep the original shape" },
 ];
@@ -45,7 +73,12 @@ function TimeField({
     <div>
       <span className="label">{label}</span>
       <div className="mt-1.5 flex items-center gap-1">
-        <button type="button" className="btn-icon h-9 w-8" aria-label={`${label} minus 1 second`} onClick={() => onChange(value - 1)}>
+        <button
+          type="button"
+          className="btn-icon h-9 w-8"
+          aria-label={`${label} minus 1 second`}
+          onClick={() => onChange(value - 1)}
+        >
           <Minus className="h-3.5 w-3.5" />
         </button>
         <input
@@ -56,10 +89,21 @@ function TimeField({
           onBlur={commit}
           onKeyDown={(e) => e.key === "Enter" && commit()}
         />
-        <button type="button" className="btn-icon h-9 w-8" aria-label={`${label} plus 1 second`} onClick={() => onChange(value + 1)}>
+        <button
+          type="button"
+          className="btn-icon h-9 w-8"
+          aria-label={`${label} plus 1 second`}
+          onClick={() => onChange(value + 1)}
+        >
           <Plus className="h-3.5 w-3.5" />
         </button>
-        <button type="button" className="btn-icon h-9 w-9" title="Set to playhead" aria-label={`Set ${label} to playhead`} onClick={onUsePlayhead}>
+        <button
+          type="button"
+          className="btn-icon h-9 w-9"
+          title="Set to playhead"
+          aria-label={`Set ${label} to playhead`}
+          onClick={onUsePlayhead}
+        >
           <Crosshair className="h-4 w-4" />
         </button>
       </div>
@@ -190,7 +234,9 @@ export default function ClipEditor({
               onClick={() => onChange({ aspect: a.value })}
               aria-pressed={state.aspect === a.value}
               className={`flex flex-col items-center gap-1.5 rounded-xl border px-1 py-2 text-xs transition ${
-                state.aspect === a.value ? "border-primary bg-primary/10 text-ink" : "border-line text-muted hover:border-muted/60"
+                state.aspect === a.value
+                  ? "border-primary bg-primary/10 text-ink"
+                  : "border-line text-muted hover:border-muted/60"
               }`}
             >
               <span className="flex h-9 items-center">
@@ -199,7 +245,9 @@ export default function ClipEditor({
                   style={{ width: (a.w / Math.max(a.w, a.h)) * 32, height: (a.h / Math.max(a.w, a.h)) * 32 }}
                 >
                   {a.value === "vertical_facecam" && (
-                    <span className={`block h-1/3 border-b-2 ${state.aspect === a.value ? "border-primary" : "border-dim"}`} />
+                    <span
+                      className={`block h-1/3 border-b-2 ${state.aspect === a.value ? "border-primary" : "border-dim"}`}
+                    />
                   )}
                 </span>
                 {a.value === "vertical_smart" && <Sparkle />}

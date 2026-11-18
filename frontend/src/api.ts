@@ -1,12 +1,6 @@
-export type VideoStatus = "uploaded" | "queued" | "analyzing" | "ready" | "failed";
+export type VideoStatus = "uploaded" | "downloading" | "queued" | "analyzing" | "ready" | "failed";
 export type ClipStatus = "queued" | "rendering" | "done" | "failed";
-export type Aspect =
-  | "vertical_blur"
-  | "vertical_smart"
-  | "vertical_facecam"
-  | "vertical_crop"
-  | "square"
-  | "landscape";
+export type Aspect = "vertical_blur" | "vertical_smart" | "vertical_facecam" | "vertical_crop" | "square" | "landscape";
 
 export interface Rect {
   x: number;
@@ -95,6 +89,7 @@ export interface Video {
   settings: AnalyzeSettings;
   ai_used: boolean;
   layout: { facecam?: Rect };
+  import_url: string | null;
   created_at: number;
   source_url: string;
   thumbnail_url: string | null;
@@ -119,10 +114,14 @@ export interface Health {
   max_upload_mb: number;
   allowed_extensions: string[];
   captions_available: boolean;
+  import_sites: string[];
 }
 
 export class ApiError extends Error {
-  constructor(public status: number, message: string) {
+  constructor(
+    public status: number,
+    message: string,
+  ) {
     super(message);
   }
 }
@@ -151,14 +150,18 @@ export const api = {
   health: () => request<Health>("/api/health"),
   videos: () => request<Video[]>("/api/videos"),
   video: (id: string) => request<Video>(`/api/videos/${id}`),
+  importLink: (url: string, settings: AnalyzeSettings) =>
+    request<Video>("/api/videos/import", { method: "POST", body: JSON.stringify({ url, ...settings }) }),
   timeline: (id: string) => request<Timeline>(`/api/videos/${id}/timeline`),
   deleteVideo: (id: string) => request<void>(`/api/videos/${id}`, { method: "DELETE" }),
   reanalyze: (id: string, settings: AnalyzeSettings) =>
     request<Video>(`/api/videos/${id}/reanalyze`, { method: "POST", body: JSON.stringify(settings) }),
   patchHighlight: (id: string, patch: Partial<Pick<Highlight, "title" | "caption" | "start" | "end">>) =>
     request<Highlight>(`/api/highlights/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
-  createClip: (videoId: string, body: { highlight_id?: string | null; start: number; end: number } & Partial<ClipOptions>) =>
-    request<Clip>(`/api/videos/${videoId}/clips`, { method: "POST", body: JSON.stringify(body) }),
+  createClip: (
+    videoId: string,
+    body: { highlight_id?: string | null; start: number; end: number } & Partial<ClipOptions>,
+  ) => request<Clip>(`/api/videos/${videoId}/clips`, { method: "POST", body: JSON.stringify(body) }),
   exportAll: (videoId: string, body: { aspect: Aspect; title_overlay: boolean; top: number; captions: boolean }) =>
     request<Clip[]>(`/api/videos/${videoId}/export-all`, { method: "POST", body: JSON.stringify(body) }),
   deleteClip: (id: string) => request<void>(`/api/clips/${id}`, { method: "DELETE" }),
@@ -175,6 +178,9 @@ export interface UploadHandle {
 }
 
 /** Streams the file as the raw request body so we get real upload progress. */
+export const isBusy = (v: Pick<Video, "status">) =>
+  v.status === "queued" || v.status === "analyzing" || v.status === "downloading";
+
 export function uploadVideo(
   file: File,
   settings: AnalyzeSettings,

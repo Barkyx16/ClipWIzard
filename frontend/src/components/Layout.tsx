@@ -30,8 +30,8 @@ export default function Layout() {
         <Outlet />
       </main>
       <footer className="border-t border-line/70 py-6 text-center text-xs text-dim">
-        ClipWizard is a fan-made tool. Not affiliated with or endorsed by Rockstar Games or Take-Two
-        Interactive. Grand Theft Auto is a trademark of its respective owner.
+        ClipWizard is a fan-made tool. Not affiliated with or endorsed by Rockstar Games or Take-Two Interactive. Grand
+        Theft Auto is a trademark of its respective owner.
       </footer>
       <WorkspaceDialog open={workspaceOpen} onClose={() => setWorkspaceOpen(false)} />
     </div>

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { AudioWaveform, Crosshair, Scissors, Wand2 } from "lucide-react";
 
-import { api, Health, Video } from "../api";
+import { api, Health, isBusy, Video } from "../api";
 import UploadCard from "../components/UploadCard";
 import VideoCard from "../components/VideoCard";
 import { usePolling } from "../lib/usePolling";
@@ -39,11 +39,14 @@ export default function HomePage() {
   }, []);
 
   useEffect(() => {
-    api.health().then(setHealth).catch(() => setHealth(null));
+    api
+      .health()
+      .then(setHealth)
+      .catch(() => setHealth(null));
     load();
   }, [load]);
 
-  const anyBusy = videos?.some((v) => v.status === "queued" || v.status === "analyzing") ?? false;
+  const anyBusy = videos?.some(isBusy) ?? false;
   usePolling(load, 2000, anyBusy);
 
   const remove = async (v: Video) => {
@@ -111,7 +114,9 @@ export default function HomePage() {
           </div>
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {videos?.map((v) => <VideoCard key={v.id} video={v} onDelete={remove} />)}
+            {videos?.map((v) => (
+              <VideoCard key={v.id} video={v} onDelete={remove} />
+            ))}
           </div>
         )}
       </section>

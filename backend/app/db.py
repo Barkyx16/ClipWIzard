@@ -112,6 +112,7 @@ MIGRATIONS = [
     ("videos", "layout", "TEXT NOT NULL DEFAULT '{}'"),
     ("clips", "transcript", "TEXT"),
     ("clips", "warning", "TEXT"),
+    ("videos", "import_url", "TEXT"),
 ]
 
 

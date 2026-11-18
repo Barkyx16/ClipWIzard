@@ -1,8 +1,8 @@
 import { useCallback, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Bot, FileVideo, Loader2, UploadCloud, X } from "lucide-react";
+import { Bot, FileVideo, Link2, Loader2, UploadCloud, X } from "lucide-react";
 
-import { AnalyzeSettings, ClipLength, Health, UploadHandle, uploadVideo } from "../api";
+import { AnalyzeSettings, api, ClipLength, Health, UploadHandle, uploadVideo } from "../api";
 import { formatBytes } from "../lib/format";
 import ProgressBar from "./ProgressBar";
 
@@ -16,6 +16,9 @@ export default function UploadCard({ health }: { health: Health | null }) {
   const navigate = useNavigate();
   const inputRef = useRef<HTMLInputElement>(null);
   const handleRef = useRef<UploadHandle | null>(null);
+  const [mode, setMode] = useState<"file" | "link">("file");
+  const [link, setLink] = useState("");
+  const [importing, setImporting] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [dragging, setDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -67,55 +70,118 @@ export default function UploadCard({ health }: { health: Health | null }) {
     }
   };
 
-  const uploading = progress !== null;
+  const startImport = async () => {
+    setError(null);
+    setImporting(true);
+    try {
+      const video = await api.importLink(link.trim(), { ...settings, use_ai: settings.use_ai && aiAvailable });
+      navigate(`/videos/${video.id}`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Import failed");
+      setImporting(false);
+    }
+  };
+
+  const uploading = progress !== null || importing;
   const elapsed = progress ? (performance.now() - progress.started) / 1000 : 0;
   const speed = progress && elapsed > 0.5 ? progress.loaded / elapsed : 0;
   const processing = progress && progress.loaded >= progress.total;
 
   return (
     <section className="card p-5 sm:p-6" aria-label="Upload a recording">
-      <div
-        onDragOver={(e) => {
-          e.preventDefault();
-          if (!uploading) setDragging(true);
-        }}
-        onDragLeave={() => setDragging(false)}
-        onDrop={(e) => {
-          e.preventDefault();
-          setDragging(false);
-          if (!uploading) pick(e.dataTransfer.files[0]);
-        }}
-        onClick={() => !uploading && inputRef.current?.click()}
-        onKeyDown={(e) => {
-          if ((e.key === "Enter" || e.key === " ") && !uploading) inputRef.current?.click();
-        }}
-        role="button"
-        tabIndex={0}
-        className={`flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed px-4 py-10 text-center transition ${
-          dragging ? "border-primary bg-primary/10" : "border-line hover:border-muted/60 hover:bg-surface-2/50"
-        } ${uploading ? "pointer-events-none opacity-70" : ""}`}
-      >
-        <input
-          ref={inputRef}
-          type="file"
-          accept={`video/*,${accept}`}
-          className="hidden"
-          onChange={(e) => pick(e.target.files?.[0])}
-        />
-        {file ? (
-          <>
-            <FileVideo className="mb-3 h-10 w-10 text-accent" />
-            <p className="max-w-full truncate font-semibold">{file.name}</p>
-            <p className="mt-1 text-sm text-muted">{formatBytes(file.size)} · click to change</p>
-          </>
-        ) : (
-          <>
-            <UploadCloud className="mb-3 h-10 w-10 text-primary" />
-            <p className="font-semibold">Drop your gameplay recording here</p>
-            <p className="mt-1 text-sm text-muted">MP4, MOV, MKV or WebM · streams and long sessions welcome</p>
-          </>
-        )}
+      <div className="mb-4 grid grid-cols-2 gap-1 rounded-xl border border-line bg-surface-2 p-1" role="tablist">
+        {(
+          [
+            ["file", "Upload file", UploadCloud],
+            ["link", "Paste link", Link2],
+          ] as const
+        ).map(([value, label, Icon]) => (
+          <button
+            key={value}
+            type="button"
+            role="tab"
+            aria-selected={mode === value}
+            disabled={uploading}
+            onClick={() => {
+              setMode(value);
+              setError(null);
+            }}
+            className={`flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm transition ${
+              mode === value ? "bg-surface font-semibold text-ink shadow" : "text-muted hover:text-ink"
+            }`}
+          >
+            <Icon className="h-4 w-4" /> {label}
+          </button>
+        ))}
       </div>
+
+      {mode === "link" ? (
+        <div className="rounded-xl border-2 border-dashed border-line px-4 py-6">
+          <label htmlFor="import-link" className="label">
+            Video link
+          </label>
+          <input
+            id="import-link"
+            className="input mt-2"
+            type="url"
+            inputMode="url"
+            placeholder="https://www.twitch.tv/videos/…"
+            value={link}
+            disabled={uploading}
+            onChange={(e) => setLink(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && link.trim() && startImport()}
+          />
+          <p className="mt-2 text-xs text-muted">
+            {health?.import_sites?.length
+              ? `Works with ${health.import_sites.join(", ")} and direct .mp4 links.`
+              : "Works with YouTube, Twitch, Kick, Medal and direct .mp4 links."}{" "}
+            Only import videos you have the rights to use.
+          </p>
+        </div>
+      ) : (
+        <div
+          onDragOver={(e) => {
+            e.preventDefault();
+            if (!uploading) setDragging(true);
+          }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setDragging(false);
+            if (!uploading) pick(e.dataTransfer.files[0]);
+          }}
+          onClick={() => !uploading && inputRef.current?.click()}
+          onKeyDown={(e) => {
+            if ((e.key === "Enter" || e.key === " ") && !uploading) inputRef.current?.click();
+          }}
+          role="button"
+          tabIndex={0}
+          className={`flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed px-4 py-10 text-center transition ${
+            dragging ? "border-primary bg-primary/10" : "border-line hover:border-muted/60 hover:bg-surface-2/50"
+          } ${uploading ? "pointer-events-none opacity-70" : ""}`}
+        >
+          <input
+            ref={inputRef}
+            type="file"
+            accept={`video/*,${accept}`}
+            className="hidden"
+            onChange={(e) => pick(e.target.files?.[0])}
+          />
+          {file ? (
+            <>
+              <FileVideo className="mb-3 h-10 w-10 text-accent" />
+              <p className="max-w-full truncate font-semibold">{file.name}</p>
+              <p className="mt-1 text-sm text-muted">{formatBytes(file.size)} · click to change</p>
+            </>
+          ) : (
+            <>
+              <UploadCloud className="mb-3 h-10 w-10 text-primary" />
+              <p className="font-semibold">Drop your gameplay recording here</p>
+              <p className="mt-1 text-sm text-muted">MP4, MOV, MKV or WebM · streams and long sessions welcome</p>
+            </>
+          )}
+        </div>
+      )}
 
       <div className="mt-5 grid gap-5 sm:grid-cols-2">
         <div>
@@ -128,7 +194,9 @@ export default function UploadCard({ health }: { health: Health | null }) {
                 disabled={uploading}
                 onClick={() => setSettings((s) => ({ ...s, length: l.value }))}
                 className={`rounded-lg px-2 py-1.5 text-sm transition ${
-                  settings.length === l.value ? "bg-gradient-brand font-semibold text-white" : "text-muted hover:text-ink"
+                  settings.length === l.value
+                    ? "bg-gradient-brand font-semibold text-white"
+                    : "text-muted hover:text-ink"
                 }`}
               >
                 {l.label}
@@ -156,7 +224,11 @@ export default function UploadCard({ health }: { health: Health | null }) {
             <span className="label flex justify-between">
               Sensitivity
               <span className="text-ink">
-                {settings.sensitivity < 0.34 ? "Only bangers" : settings.sensitivity < 0.67 ? "Balanced" : "Catch everything"}
+                {settings.sensitivity < 0.34
+                  ? "Only bangers"
+                  : settings.sensitivity < 0.67
+                    ? "Balanced"
+                    : "Catch everything"}
               </span>
             </span>
             <input
@@ -203,7 +275,11 @@ export default function UploadCard({ health }: { health: Health | null }) {
         </p>
       )}
 
-      {uploading ? (
+      {importing ? (
+        <p className="mt-5 flex items-center justify-center gap-2 text-sm text-muted">
+          <Loader2 className="h-4 w-4 animate-spin" /> Starting import…
+        </p>
+      ) : progress ? (
         <div className="mt-5 space-y-2">
           <ProgressBar value={progress.total ? progress.loaded / progress.total : 0} />
           <div className="flex items-center justify-between text-sm text-muted">
@@ -216,15 +292,25 @@ export default function UploadCard({ health }: { health: Health | null }) {
                   }`}
             </span>
             {!processing && (
-              <button type="button" className="btn-icon" aria-label="Cancel upload" onClick={() => handleRef.current?.abort()}>
+              <button
+                type="button"
+                className="btn-icon"
+                aria-label="Cancel upload"
+                onClick={() => handleRef.current?.abort()}
+              >
                 <X className="h-4 w-4" />
               </button>
             )}
           </div>
         </div>
       ) : (
-        <button type="button" className="btn-primary mt-5 w-full py-3 text-base" disabled={!file} onClick={start}>
-          <UploadCloud className="h-5 w-5" /> Find my highlights
+        <button
+          type="button"
+          className="btn-primary mt-5 w-full py-3 text-base"
+          disabled={mode === "file" ? !file : link.trim().length < 8}
+          onClick={mode === "file" ? start : startImport}
+        >
+          {mode === "file" ? <UploadCloud className="h-5 w-5" /> : <Link2 className="h-5 w-5" />} Find my highlights
         </button>
       )}
     </section>

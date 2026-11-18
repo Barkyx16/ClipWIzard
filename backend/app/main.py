@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from . import db, jobs, pipeline
 from .config import get_settings
-from .media import captions, ffmpeg
+from .media import captions, ffmpeg, importer
 from .workspace import (
     WorkspaceMiddleware,
     current_workspace,
@@ -118,6 +118,10 @@ class LayoutUpdate(BaseModel):
     facecam: Rect | None = None
 
 
+class ImportRequest(AnalyzeSettings):
+    url: str = Field(min_length=8, max_length=2000)
+
+
 class WorkspaceSwitch(BaseModel):
     key: str = Field(min_length=32, max_length=64)
 
@@ -153,6 +157,7 @@ def video_out(v: dict[str, Any], include_children: bool = False) -> dict[str, An
         "settings": v["settings"],
         "ai_used": v["ai_used"],
         "layout": v.get("layout") or {},
+        "import_url": v.get("import_url"),
         "created_at": v["created_at"],
         "source_url": _media_url("uploads", v["filename"]),
         "thumbnail_url": _media_url("thumbs", v.get("thumbnail")),
@@ -242,6 +247,7 @@ def health() -> dict[str, Any]:
         "model": s.claude_model if s.ai_enabled else None,
         "max_upload_mb": s.max_upload_mb,
         "captions_available": captions.available(),
+        "import_sites": list(dict.fromkeys(importer.PLATFORMS.values())),
         "allowed_extensions": sorted(ALLOWED_EXTENSIONS),
     }
 
@@ -321,6 +327,24 @@ async def upload_video(
     return video_out(v, include_children=True)
 
 
+@app.post("/api/videos/import", status_code=201)
+def import_link(body: ImportRequest, ws: str = Workspace) -> dict[str, Any]:
+    """Download a video from YouTube/Twitch/... or a direct file link, then analyse it."""
+    try:
+        importer.classify(body.url)
+    except importer.ImportFailed as e:
+        raise HTTPException(400, str(e)) from e
+    video_id = db.new_id()
+    settings = AnalyzeSettings(**body.model_dump(exclude={"url"}))
+    v = db.create_video(
+        id=video_id, original_name=importer.display_name(body.url), filename=f"{video_id}.pending",
+        size_bytes=0, status="downloading", stage="Waiting to download", progress=0.0,
+        settings=settings.model_dump(), workspace=ws, import_url=body.url.strip(),
+    )
+    jobs.submit(pipeline.import_video, video_id)
+    return video_out(v, include_children=True)
+
+
 @app.get("/api/videos/{video_id}")
 def get_video(video_id: str, ws: str = Workspace) -> dict[str, Any]:
     return video_out(_video_or_404(video_id, ws), include_children=True)
@@ -338,8 +362,10 @@ def get_timeline(video_id: str, ws: str = Workspace) -> dict[str, Any]:
 @app.post("/api/videos/{video_id}/reanalyze")
 def reanalyze(video_id: str, body: AnalyzeSettings, ws: str = Workspace) -> dict[str, Any]:
     v = _video_or_404(video_id, ws)
-    if v["status"] in ("queued", "analyzing"):
-        raise HTTPException(409, "This video is already being analysed")
+    if v["status"] in ("queued", "analyzing", "downloading"):
+        raise HTTPException(409, "This video is already being processed")
+    if not (get_settings().uploads_dir / v["filename"]).exists():
+        raise HTTPException(409, "The video file is missing, so it can't be re-scanned")
     db.update_video(video_id, settings=body.model_dump(), status="queued", stage="Queued",
                     progress=0.0, error=None)
     jobs.submit(pipeline.analyze_video, video_id)
@@ -362,8 +388,8 @@ def update_layout(video_id: str, body: LayoutUpdate, ws: str = Workspace) -> dic
 @app.delete("/api/videos/{video_id}", status_code=204)
 def delete_video(video_id: str, ws: str = Workspace) -> None:
     v = _video_or_404(video_id, ws)
-    if v["status"] in ("queued", "analyzing"):
-        raise HTTPException(409, "Wait for analysis to finish before deleting")
+    if v["status"] in ("queued", "analyzing", "downloading"):
+        raise HTTPException(409, "Wait for processing to finish before deleting")
     pipeline.remove_video_files(v)
     db.delete_video(video_id)
 

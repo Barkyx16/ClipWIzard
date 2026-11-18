@@ -1,12 +1,12 @@
 import { Link } from "react-router-dom";
 import { AlertTriangle, Clapperboard, Trash2 } from "lucide-react";
 
-import { Video } from "../api";
+import { isBusy, Video } from "../api";
 import { formatBytes, formatTime, timeAgo } from "../lib/format";
 import ProgressBar from "./ProgressBar";
 
 export default function VideoCard({ video, onDelete }: { video: Video; onDelete: (v: Video) => void }) {
-  const busy = video.status === "queued" || video.status === "analyzing";
+  const busy = isBusy(video);
   return (
     <div className="card group relative overflow-hidden transition hover:border-muted/50">
       <Link to={`/videos/${video.id}`} className="block focus-visible:outline-2 focus-visible:outline-accent">
@@ -18,9 +18,11 @@ export default function VideoCard({ video, onDelete }: { video: Video; onDelete:
               <Clapperboard className="h-10 w-10" />
             </div>
           )}
-          <span className="absolute bottom-2 right-2 rounded-md bg-black/70 px-1.5 py-0.5 text-xs font-medium">
-            {formatTime(video.duration)}
-          </span>
+          {video.duration ? (
+            <span className="absolute bottom-2 right-2 rounded-md bg-black/70 px-1.5 py-0.5 text-xs font-medium">
+              {formatTime(video.duration)}
+            </span>
+          ) : null}
         </div>
         <div className="space-y-2 p-4">
           <p className="truncate font-semibold" title={video.name}>
@@ -33,7 +35,8 @@ export default function VideoCard({ video, onDelete }: { video: Video; onDelete:
             </>
           ) : video.status === "failed" ? (
             <p className="flex items-center gap-1.5 text-xs text-bad">
-              <AlertTriangle className="h-3.5 w-3.5" /> Analysis failed
+              <AlertTriangle className="h-3.5 w-3.5" />{" "}
+              {video.stage === "Import failed" ? "Import failed" : "Analysis failed"}
             </p>
           ) : (
             <p className="text-xs text-muted">

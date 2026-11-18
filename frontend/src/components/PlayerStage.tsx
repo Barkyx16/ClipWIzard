@@ -30,7 +30,12 @@ export function smartCentre(timeline: Timeline | null, t: number): number {
 }
 
 /** Horizontal crop window (fractions of the frame) for the vertical formats. */
-function cropWindow(video: Video, aspect: Aspect, cropX: number, centre: number): { left: number; width: number } | null {
+function cropWindow(
+  video: Video,
+  aspect: Aspect,
+  cropX: number,
+  centre: number,
+): { left: number; width: number } | null {
   const srcAspect = video.width / video.height;
   let target = 9 / 16;
   if (aspect === "vertical_facecam") {
@@ -97,7 +102,10 @@ const PlayerStage = forwardRef<HTMLVideoElement, Props>(function PlayerStage(
       {crop && !drawing && (
         <div className="pointer-events-none absolute inset-0 [&>div]:transition-all [&>div]:duration-300 [&>div]:ease-linear">
           <div className="absolute inset-y-0 left-0 bg-black/60" style={{ width: pct(crop.left) }} />
-          <div className="absolute inset-y-0 border-2 border-accent" style={{ left: pct(crop.left), width: pct(crop.width) }} />
+          <div
+            className="absolute inset-y-0 border-2 border-accent"
+            style={{ left: pct(crop.left), width: pct(crop.width) }}
+          />
           <div className="absolute inset-y-0 right-0 bg-black/60" style={{ width: pct(1 - crop.left - crop.width) }} />
         </div>
       )}
@@ -107,7 +115,9 @@ const PlayerStage = forwardRef<HTMLVideoElement, Props>(function PlayerStage(
           className="pointer-events-none absolute border-2 border-dashed border-primary bg-primary/10"
           style={{ left: pct(facecam.x), top: pct(facecam.y), width: pct(facecam.w), height: pct(facecam.h) }}
         >
-          <span className="absolute left-1 top-1 rounded bg-primary px-1 text-[10px] font-bold text-on-primary">CAM</span>
+          <span className="absolute left-1 top-1 rounded bg-primary px-1 text-[10px] font-bold text-on-primary">
+            CAM
+          </span>
         </div>
       )}
 

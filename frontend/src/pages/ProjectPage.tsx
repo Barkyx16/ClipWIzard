@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { AlertTriangle, ArrowLeft, Bot, Layers, Loader2, Play, RefreshCw, Repeat } from "lucide-react";
 
-import { api, AnalyzeSettings, Clip, Health, Highlight, Rect, Timeline as TimelineData, Video } from "../api";
+import { api, AnalyzeSettings, Clip, Health, Highlight, isBusy, Rect, Timeline as TimelineData, Video } from "../api";
 import ClipEditor, { EditorState } from "../components/ClipEditor";
 import ExportCard from "../components/ExportCard";
 import PlayerStage from "../components/PlayerStage";
@@ -30,7 +30,9 @@ function AnalyzingState({ video }: { video: Video }) {
       <Loader2 className="mx-auto mb-4 h-10 w-10 animate-spin text-primary" />
       <h2 className="font-display text-4xl tracking-wide">{video.stage ?? "Queued"}…</h2>
       <p className="mt-2 text-sm text-muted">
-        {formatTime(video.duration)} of footage. Long sessions take a few minutes; you can leave this page and come back.
+        {video.status === "downloading"
+          ? "Grabbing the video. Long VODs can take a while; you can leave this page and come back."
+          : `${formatTime(video.duration)} of footage. Long sessions take a few minutes; you can leave this page and come back.`}
       </p>
       <ProgressBar value={video.progress} className="mt-6 h-3" />
       <p className="mt-2 text-sm font-semibold">{Math.round(video.progress * 100)}%</p>
@@ -130,7 +132,10 @@ export default function ProjectPage() {
   });
   const [health, setHealth] = useState<Health | null>(null);
   useEffect(() => {
-    api.health().then(setHealth).catch(() => setHealth(null));
+    api
+      .health()
+      .then(setHealth)
+      .catch(() => setHealth(null));
   }, []);
   const captionsOn = editor.captions && Boolean(health?.captions_available);
 
@@ -151,14 +156,17 @@ export default function ProjectPage() {
     load();
   }, [load]);
 
-  const busy = video?.status === "queued" || video?.status === "analyzing";
+  const busy = video ? isBusy(video) : false;
   const rendering = clips.some((c) => c.status === "queued" || c.status === "rendering");
   usePolling(load, 1500, Boolean(busy || rendering));
 
   // Load the timeline and select the top highlight once analysis is done.
   useEffect(() => {
     if (video?.status !== "ready") return;
-    api.timeline(video.id).then(setTimeline).catch(() => setTimeline(null));
+    api
+      .timeline(video.id)
+      .then(setTimeline)
+      .catch(() => setTimeline(null));
   }, [video?.status, video?.id]);
 
   const select = useCallback((h: Highlight, play = true) => {
@@ -309,10 +317,22 @@ export default function ProjectPage() {
             {video.name}
           </h1>
           <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted">
-            <span>{formatTime(video.duration)}</span>
-            <span>
-              {video.width}×{video.height} @ {Math.round(video.fps)}fps
-            </span>
+            {video.duration ? <span>{formatTime(video.duration)}</span> : null}
+            {video.width ? (
+              <span>
+                {video.width}×{video.height} @ {Math.round(video.fps)}fps
+              </span>
+            ) : null}
+            {video.import_url && (
+              <a
+                href={video.import_url}
+                target="_blank"
+                rel="noreferrer noopener"
+                className="underline-offset-2 hover:text-ink hover:underline"
+              >
+                Source link
+              </a>
+            )}
             {video.status === "ready" && <span>{highlights.length} highlights</span>}
             {video.ai_used && (
               <span className="inline-flex items-center gap-1 text-accent">
@@ -330,7 +350,9 @@ export default function ProjectPage() {
         <div className="card flex items-start gap-3 border-bad/40 p-5 text-sm">
           <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-bad" />
           <div>
-            <p className="font-semibold text-bad">Analysis failed</p>
+            <p className="font-semibold text-bad">
+              {video.stage === "Import failed" ? "Import failed" : "Analysis failed"}
+            </p>
             <p className="mt-1 break-words text-muted">{video.error}</p>
           </div>
         </div>
@@ -434,20 +456,20 @@ export default function ProjectPage() {
           </div>
 
           <section aria-labelledby="exports-heading" className="min-w-0 lg:col-start-1">
-              <h2 id="exports-heading" className="mb-3 font-display text-3xl tracking-wide">
-                Exports
-              </h2>
-              {clips.length === 0 ? (
-                <p className="card px-4 py-8 text-center text-sm text-muted">
-                  Exported clips show up here, ready to download.
-                </p>
-              ) : (
-                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4">
-                  {clips.map((c) => (
-                    <ExportCard key={c.id} clip={c} title={clipTitle(c)} onDelete={deleteClip} />
-                  ))}
-                </div>
-              )}
+            <h2 id="exports-heading" className="mb-3 font-display text-3xl tracking-wide">
+              Exports
+            </h2>
+            {clips.length === 0 ? (
+              <p className="card px-4 py-8 text-center text-sm text-muted">
+                Exported clips show up here, ready to download.
+              </p>
+            ) : (
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4">
+                {clips.map((c) => (
+                  <ExportCard key={c.id} clip={c} title={clipTitle(c)} onDelete={deleteClip} />
+                ))}
+              </div>
+            )}
           </section>
         </div>
       )}

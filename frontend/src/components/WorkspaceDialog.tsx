@@ -19,7 +19,10 @@ export default function WorkspaceDialog({ open, onClose }: { open: boolean; onCl
       d.showModal();
       setError(null);
       setOther("");
-      api.workspace().then((w) => setKey(w.key)).catch(() => setKey(null));
+      api
+        .workspace()
+        .then((w) => setKey(w.key))
+        .catch(() => setKey(null));
     } else if (!open && d.open) {
       d.close();
     }
@@ -77,7 +80,12 @@ export default function WorkspaceDialog({ open, onClose }: { open: boolean; onCl
               value={key ?? ""}
               aria-label="Workspace key"
             />
-            <button type="button" className="btn-icon shrink-0" aria-label={reveal ? "Hide key" : "Show key"} onClick={() => setReveal((r) => !r)}>
+            <button
+              type="button"
+              className="btn-icon shrink-0"
+              aria-label={reveal ? "Hide key" : "Show key"}
+              onClick={() => setReveal((r) => !r)}
+            >
               {reveal ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
             </button>
             <button type="button" className="btn-icon shrink-0" aria-label="Copy key" onClick={copy} disabled={!key}>
@@ -96,7 +104,12 @@ export default function WorkspaceDialog({ open, onClose }: { open: boolean; onCl
               onChange={(e) => setOther(e.target.value)}
               aria-label="Workspace key to open"
             />
-            <button type="button" className="btn-ghost shrink-0" disabled={other.trim().length < 32 || busy} onClick={switchTo}>
+            <button
+              type="button"
+              className="btn-ghost shrink-0"
+              disabled={other.trim().length < 32 || busy}
+              onClick={switchTo}
+            >
               {busy && <Loader2 className="h-4 w-4 animate-spin" />} Open
             </button>
           </div>

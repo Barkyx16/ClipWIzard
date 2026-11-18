@@ -16,7 +16,16 @@ interface Props {
 
 const H = 80;
 
-export default function Timeline({ data, duration, highlights, selectedId, currentTime, range, onSeek, onSelect }: Props) {
+export default function Timeline({
+  data,
+  duration,
+  highlights,
+  selectedId,
+  currentTime,
+  range,
+  onSeek,
+  onSelect,
+}: Props) {
   const ref = useRef<HTMLDivElement>(null);
 
   const path = useMemo(() => {
@@ -95,7 +104,10 @@ export default function Timeline({ data, duration, highlights, selectedId, curre
           />
         )}
 
-        <div className="pointer-events-none absolute top-0 h-full w-0.5 bg-white shadow-[0_0_8px_white]" style={{ left: x(currentTime) }} />
+        <div
+          className="pointer-events-none absolute top-0 h-full w-0.5 bg-white shadow-[0_0_8px_white]"
+          style={{ left: x(currentTime) }}
+        />
       </div>
       <div className="mt-1 flex justify-between text-[10px] text-dim">
         {ticks.map((t, i) => (

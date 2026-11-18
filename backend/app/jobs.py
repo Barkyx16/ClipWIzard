@@ -39,8 +39,11 @@ def submit(fn: Callable[..., None], *args: object) -> Future:
 
 def resume_interrupted() -> None:
     """Re-queue work that was in flight when the server last stopped."""
-    from .pipeline import analyze_video, render
+    from .pipeline import analyze_video, import_video, render
 
+    for v in db.videos_with_status("downloading"):
+        db.update_video(v["id"], stage="Download resumed", progress=0.0)
+        submit(import_video, v["id"])
     for v in db.videos_with_status("queued", "analyzing"):
         db.update_video(v["id"], status="queued", stage="Queued (resumed)", progress=0.0)
         submit(analyze_video, v["id"])

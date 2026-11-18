@@ -1,9 +1,6 @@
 @import "tailwindcss";
 @import "./theme.css";
 
-
-
-
 body {
   @apply bg-bg text-ink font-sans antialiased;
   background-image:

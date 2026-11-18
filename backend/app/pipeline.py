@@ -17,7 +17,8 @@ from .analysis.smartcrop import camera_path, keyframes
 from .analysis.signals import MotionAccumulator, build_signals
 from .config import get_settings
 from .media.ffmpeg import FFmpegError, decode_for_analysis, extract_frame
-from .media import captions
+from .media import captions, importer
+from .media.ffmpeg import probe
 from .media.render import RenderOptions, output_size, render_clip
 
 log = logging.getLogger(__name__)
@@ -168,6 +169,49 @@ def analyze_video(video_id: str) -> None:
         shutil.rmtree(work, ignore_errors=True)
 
 
+def import_video(video_id: str) -> None:
+    """Download a linked video, then analyse it like an upload."""
+    settings = get_settings()
+    video = db.get_video(video_id)
+    if video is None or not video.get("import_url"):
+        return
+    url = video["import_url"]
+    limit = settings.max_upload_mb * 1024 * 1024
+    try:
+        kind, source = importer.classify(url)
+        progress = _Throttle(video_id, 0.0, 1.0, f"Downloading from {source}")
+        db.update_video(video_id, status="downloading", error=None)
+        stem = settings.uploads_dir / video_id
+        title = None
+        if kind == "platform":
+            path, title = importer.download_platform(url, stem, limit, progress)
+        else:
+            ext = Path(url.split("?", 1)[0]).suffix.lower() or ".mp4"
+            path = importer.download_direct(url, stem.with_suffix(ext), limit, progress)
+        info = probe(path)
+        if info.duration > importer.max_import_seconds():
+            path.unlink(missing_ok=True)
+            raise importer.ImportFailed("That video is too long to import")
+        name = video["original_name"]
+        if title:
+            clean = "".join(ch for ch in title if ch.isprintable()).strip()[:110]
+            name = f"{clean}{path.suffix}" if clean else name
+        db.update_video(
+            video_id, filename=path.name, original_name=name, size_bytes=path.stat().st_size,
+            duration=info.duration, width=info.width, height=info.height, fps=info.fps,
+            has_audio=info.has_audio, status="queued", stage="Queued", progress=0.0,
+        )
+    except importer.ImportFailed as e:
+        db.update_video(video_id, status="failed", stage="Import failed", error=str(e))
+        return
+    except Exception as e:
+        log.exception("Import failed for %s", video_id)
+        db.update_video(video_id, status="failed", stage="Import failed",
+                        error=f"Import failed: {e}"[:800])
+        return
+    analyze_video(video_id)
+
+
 def render(clip_id: str) -> None:
     settings = get_settings()
     clip = db.get_clip(clip_id)
@@ -259,6 +303,8 @@ def load_camera_path(video_id: str) -> tuple[np.ndarray, float] | None:
 def remove_video_files(video: dict[str, Any]) -> None:
     settings = get_settings()
     (settings.uploads_dir / video["filename"]).unlink(missing_ok=True)
+    for leftover in settings.uploads_dir.glob(f"{video['id']}.*"):  # partial imports
+        leftover.unlink(missing_ok=True)
     (settings.analysis_dir / f"{video['id']}.npz").unlink(missing_ok=True)
     for h in db.list_highlights(video["id"]):
         if h.get("thumbnail"):

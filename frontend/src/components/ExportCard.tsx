@@ -13,7 +13,15 @@ const ASPECT_LABEL: Record<string, string> = {
   landscape: "16:9",
 };
 
-export default function ExportCard({ clip, title, onDelete }: { clip: Clip; title: string; onDelete: (c: Clip) => void }) {
+export default function ExportCard({
+  clip,
+  title,
+  onDelete,
+}: {
+  clip: Clip;
+  title: string;
+  onDelete: (c: Clip) => void;
+}) {
   const vertical = clip.options.aspect.startsWith("vertical");
   const ratio = vertical ? "aspect-[9/16]" : clip.options.aspect === "square" ? "aspect-square" : "aspect-video";
   return (

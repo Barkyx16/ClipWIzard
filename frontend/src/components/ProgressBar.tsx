@@ -8,7 +8,10 @@ export default function ProgressBar({ value, className = "" }: { value: number; 
       aria-valuemin={0}
       aria-valuemax={100}
     >
-      <div className="bg-gradient-brand h-full rounded-full transition-[width] duration-500" style={{ width: `${pct}%` }} />
+      <div
+        className="bg-gradient-brand h-full rounded-full transition-[width] duration-500"
+        style={{ width: `${pct}%` }}
+      />
     </div>
   );
 }
