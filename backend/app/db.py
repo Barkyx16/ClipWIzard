@@ -80,6 +80,19 @@ CREATE TABLE IF NOT EXISTS clips (
     updated_at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_clips_video ON clips(video_id);
+
+CREATE TABLE IF NOT EXISTS uploads (
+    id TEXT PRIMARY KEY,
+    workspace TEXT NOT NULL,
+    fingerprint TEXT NOT NULL,
+    filename TEXT NOT NULL,
+    size INTEGER NOT NULL,
+    received INTEGER NOT NULL DEFAULT 0,
+    settings TEXT NOT NULL DEFAULT '{}',
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_uploads_fp ON uploads(workspace, fingerprint);
 """
 
 _JSON_FIELDS = {"settings", "hashtags", "signals", "options", "data", "layout"}
@@ -279,6 +292,43 @@ def delete_highlight(highlight_id: str) -> None:
                 "SELECT id FROM highlights WHERE video_id = ? ORDER BY rank ASC", (row["video_id"],))]
             for rank, hid in enumerate(ids):
                 conn.execute("UPDATE highlights SET rank = ? WHERE id = ?", (rank, hid))
+
+
+def create_upload(**fields: Any) -> dict[str, Any]:
+    now = time.time()
+    fields.setdefault("id", new_id())
+    fields.update(created_at=now, updated_at=now)
+    _insert("uploads", fields)
+    return get_upload(fields["id"])  # type: ignore[return-value]
+
+
+def get_upload(upload_id: str) -> dict[str, Any] | None:
+    with connect() as conn:
+        return _row(conn.execute("SELECT * FROM uploads WHERE id = ?", (upload_id,)).fetchone())
+
+
+def find_upload(workspace: str, fingerprint: str) -> dict[str, Any] | None:
+    with connect() as conn:
+        return _row(conn.execute(
+            "SELECT * FROM uploads WHERE workspace = ? AND fingerprint = ? ORDER BY created_at DESC",
+            (workspace, fingerprint),
+        ).fetchone())
+
+
+def update_upload(upload_id: str, **fields: Any) -> None:
+    fields["updated_at"] = time.time()
+    _update("uploads", upload_id, fields)
+
+
+def delete_upload(upload_id: str) -> None:
+    with connect() as conn:
+        conn.execute("DELETE FROM uploads WHERE id = ?", (upload_id,))
+
+
+def uploads_older_than(cutoff: float) -> list[dict[str, Any]]:
+    with connect() as conn:
+        rows = conn.execute("SELECT * FROM uploads WHERE updated_at < ?", (cutoff,)).fetchall()
+    return [_row(r) for r in rows]  # type: ignore[misc]
 
 
 def videos_older_than(cutoff: float) -> list[dict[str, Any]]:

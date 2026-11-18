@@ -65,6 +65,11 @@ class Settings:
         return self.data_dir / "analysis"
 
     @property
+    def partial_dir(self) -> Path:
+        """In-progress chunked uploads."""
+        return self.data_dir / "partial"
+
+    @property
     def db_path(self) -> Path:
         return self.data_dir / "clipwizard.sqlite3"
 
@@ -77,7 +82,7 @@ class Settings:
 
     def ensure_dirs(self) -> None:
         for d in (self.uploads_dir, self.thumbs_dir, self.clips_dir, self.work_dir,
-                  self.analysis_dir):
+                  self.analysis_dir, self.partial_dir):
             d.mkdir(parents=True, exist_ok=True)
 
 

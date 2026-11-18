@@ -2,7 +2,7 @@ import { useCallback, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Bot, FileVideo, Link2, Loader2, UploadCloud, X } from "lucide-react";
 
-import { AnalyzeSettings, api, ClipLength, Health, UploadHandle, uploadVideo } from "../api";
+import { AnalyzeSettings, api, ApiError, ClipLength, Health, UploadHandle, uploadVideo } from "../api";
 import { formatBytes } from "../lib/format";
 import ProgressBar from "./ProgressBar";
 
@@ -22,7 +22,13 @@ export default function UploadCard({ health }: { health: Health | null }) {
   const [file, setFile] = useState<File | null>(null);
   const [dragging, setDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [progress, setProgress] = useState<{ loaded: number; total: number; started: number } | null>(null);
+  const [progress, setProgress] = useState<{
+    loaded: number;
+    total: number;
+    started: number;
+    base: number | null;
+  } | null>(null);
+  const [uploadStatus, setUploadStatus] = useState<string | null>(null);
   const [settings, setSettings] = useState<AnalyzeSettings>({
     length: "short",
     max_clips: 12,
@@ -54,17 +60,37 @@ export default function UploadCard({ health }: { health: Health | null }) {
   const start = async () => {
     if (!file) return;
     setError(null);
-    setProgress({ loaded: 0, total: file.size, started: performance.now() });
-    const handle = uploadVideo(file, { ...settings, use_ai: settings.use_ai && aiAvailable }, (loaded, total) =>
-      setProgress((p) => (p ? { ...p, loaded, total } : p)),
+    setProgress({ loaded: 0, total: file.size, started: performance.now(), base: null });
+    setUploadStatus(null);
+    const handle = uploadVideo(
+      file,
+      { ...settings, use_ai: settings.use_ai && aiAvailable },
+      {
+        // `base` is where this attempt started, so resumed uploads report a real speed.
+        onProgress: (loaded, total) =>
+          setProgress((p) =>
+            p
+              ? p.base === null
+                ? { ...p, loaded, total, base: loaded, started: performance.now() }
+                : { ...p, loaded, total }
+              : p,
+          ),
+        onStatus: setUploadStatus,
+      },
     );
     handleRef.current = handle;
     try {
       const video = await handle.promise;
       navigate(`/videos/${video.id}`);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Upload failed");
+      const cancelled = e instanceof ApiError && e.status === -1;
+      setError(
+        cancelled
+          ? null
+          : `${e instanceof Error ? e.message : "Upload failed"}. Pick the same file again to resume where it stopped.`,
+      );
       setProgress(null);
+      setUploadStatus(null);
     } finally {
       handleRef.current = null;
     }
@@ -84,7 +110,7 @@ export default function UploadCard({ health }: { health: Health | null }) {
 
   const uploading = progress !== null || importing;
   const elapsed = progress ? (performance.now() - progress.started) / 1000 : 0;
-  const speed = progress && elapsed > 0.5 ? progress.loaded / elapsed : 0;
+  const speed = progress && elapsed > 0.5 ? (progress.loaded - (progress.base ?? 0)) / elapsed : 0;
   const processing = progress && progress.loaded >= progress.total;
 
   return (
@@ -287,9 +313,10 @@ export default function UploadCard({ health }: { health: Health | null }) {
               <Loader2 className="h-4 w-4 animate-spin" />
               {processing
                 ? "Checking the file…"
-                : `Uploading ${formatBytes(progress.loaded)} of ${formatBytes(progress.total)}${
+                : (uploadStatus ??
+                  `Uploading ${formatBytes(progress.loaded)} of ${formatBytes(progress.total)}${
                     speed ? ` · ${formatBytes(speed)}/s` : ""
-                  }`}
+                  }`)}
             </span>
             {!processing && (
               <button

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import re
@@ -124,6 +125,12 @@ class LayoutUpdate(BaseModel):
 
 class ImportRequest(AnalyzeSettings):
     url: str = Field(min_length=8, max_length=2000)
+
+
+class UploadStart(AnalyzeSettings):
+    filename: str = Field(min_length=1, max_length=255)
+    size: int = Field(gt=0)
+    fingerprint: str = Field(min_length=1, max_length=400)
 
 
 class WorkspaceSwitch(BaseModel):
@@ -373,6 +380,124 @@ def import_link(body: ImportRequest, ws: str = Workspace) -> dict[str, Any]:
     )
     jobs.submit(pipeline.import_video, video_id)
     return video_out(v, include_children=True)
+
+
+# ------------------------------------------------------------ resumable uploads
+
+CHUNK_SIZE = int(float(os.environ.get("CLIPWIZARD_UPLOAD_CHUNK_MB", "16")) * 1024 * 1024)
+MAX_CHUNK = 64 * 1024 * 1024
+_upload_locks: dict[str, asyncio.Lock] = {}
+
+
+def upload_out(u: dict[str, Any]) -> dict[str, Any]:
+    return {"id": u["id"], "filename": u["filename"], "size": u["size"], "received": u["received"],
+            "chunk_size": CHUNK_SIZE}
+
+
+def _upload_or_404(upload_id: str, ws: str) -> dict[str, Any]:
+    u = db.get_upload(upload_id)
+    if u is None or not same_workspace(u["workspace"], ws):
+        raise HTTPException(404, "Upload not found")
+    return u
+
+
+def _partial(upload_id: str) -> Path:
+    return get_settings().partial_dir / f"{upload_id}.part"
+
+
+@app.post("/api/uploads", status_code=201)
+def start_upload(body: UploadStart, ws: str = Workspace) -> dict[str, Any]:
+    """Begin (or resume) a chunked upload. Re-sending the same fingerprint resumes."""
+    s = get_settings()
+    ext = Path(body.filename).suffix.lower()
+    if ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(400, f"Unsupported file type '{ext}'. Use one of: "
+                                 + ", ".join(sorted(ALLOWED_EXTENSIONS)))
+    if body.size > s.max_upload_mb * 1024 * 1024:
+        raise HTTPException(413, f"File is larger than the {s.max_upload_mb} MB limit")
+    existing = db.find_upload(ws, body.fingerprint)
+    if existing and existing["size"] == body.size:
+        part = _partial(existing["id"])
+        on_disk = part.stat().st_size if part.exists() else 0
+        if on_disk < existing["received"]:
+            db.update_upload(existing["id"], received=on_disk)
+            existing["received"] = on_disk
+        return upload_out(existing)
+    settings = AnalyzeSettings(**body.model_dump(include=set(AnalyzeSettings.model_fields)))
+    u = db.create_upload(workspace=ws, fingerprint=body.fingerprint, filename=Path(body.filename).name,
+                         size=body.size, received=0, settings=settings.model_dump())
+    _partial(u["id"]).touch()
+    return upload_out(u)
+
+
+@app.get("/api/uploads/{upload_id}")
+def get_upload(upload_id: str, ws: str = Workspace) -> dict[str, Any]:
+    return upload_out(_upload_or_404(upload_id, ws))
+
+
+@app.put("/api/uploads/{upload_id}")
+async def put_chunk(upload_id: str, request: Request, offset: int = Query(..., ge=0),
+                    ws: str = Workspace) -> dict[str, Any]:
+    """Append one chunk. ``offset`` must equal the bytes already received."""
+    u = _upload_or_404(upload_id, ws)
+    lock = _upload_locks.setdefault(upload_id, asyncio.Lock())
+    async with lock:
+        u = db.get_upload(upload_id) or u
+        if offset != u["received"]:
+            raise HTTPException(409, detail={"message": "Offset mismatch", "received": u["received"]})
+        declared = request.headers.get("content-length")
+        if declared and declared.isdigit() and int(declared) > MAX_CHUNK:
+            raise HTTPException(413, "Chunk too large")
+        part = _partial(upload_id)
+        written = 0
+        with open(part, "r+b" if part.exists() else "w+b") as f:
+            f.truncate(offset)  # drop any bytes from an interrupted attempt
+            f.seek(offset)
+            async for data in request.stream():
+                written += len(data)
+                if written > MAX_CHUNK or offset + written > u["size"]:
+                    f.truncate(offset)
+                    raise HTTPException(413, "Chunk goes past the end of the file")
+                f.write(data)
+        db.update_upload(upload_id, received=offset + written)
+        u["received"] = offset + written
+    return upload_out(u)
+
+
+@app.post("/api/uploads/{upload_id}/complete", status_code=201)
+def complete_upload(upload_id: str, ws: str = Workspace) -> dict[str, Any]:
+    u = _upload_or_404(upload_id, ws)
+    part = _partial(upload_id)
+    if u["received"] != u["size"] or not part.exists() or part.stat().st_size != u["size"]:
+        raise HTTPException(409, detail={"message": "Upload is not finished", "received": u["received"]})
+    video_id = db.new_id()
+    ext = Path(u["filename"]).suffix.lower()
+    dest = get_settings().uploads_dir / f"{video_id}{ext}"
+    part.replace(dest)
+    try:
+        info = ffmpeg.probe(dest)
+    except ffmpeg.FFmpegError as e:
+        dest.unlink(missing_ok=True)
+        db.delete_upload(upload_id)
+        raise HTTPException(400, str(e)) from e
+    v = db.create_video(
+        id=video_id, original_name=re.sub(r"[\x00-\x1f]", "", u["filename"])[:255], filename=dest.name,
+        size_bytes=u["size"], duration=info.duration, width=info.width, height=info.height,
+        fps=info.fps, has_audio=info.has_audio, status="queued", stage="Queued", progress=0.0,
+        settings=u["settings"], workspace=ws,
+    )
+    db.delete_upload(upload_id)
+    _upload_locks.pop(upload_id, None)
+    jobs.submit(pipeline.analyze_video, video_id)
+    return video_out(v, include_children=True)
+
+
+@app.delete("/api/uploads/{upload_id}", status_code=204)
+def cancel_upload(upload_id: str, ws: str = Workspace) -> None:
+    _upload_or_404(upload_id, ws)
+    _partial(upload_id).unlink(missing_ok=True)
+    db.delete_upload(upload_id)
+    _upload_locks.pop(upload_id, None)
 
 
 @app.get("/api/videos/{video_id}")

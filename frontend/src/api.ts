@@ -198,40 +198,128 @@ export interface UploadHandle {
   abort: () => void;
 }
 
-/** Streams the file as the raw request body so we get real upload progress. */
-export const isBusy = (v: Pick<Video, "status">) =>
-  v.status === "queued" || v.status === "analyzing" || v.status === "downloading";
+interface UploadSession {
+  id: string;
+  filename: string;
+  size: number;
+  received: number;
+  chunk_size: number;
+}
 
-export function uploadVideo(
-  file: File,
-  settings: AnalyzeSettings,
-  onProgress: (loaded: number, total: number) => void,
-): UploadHandle {
-  const xhr = new XMLHttpRequest();
-  const params = new URLSearchParams({
-    filename: file.name,
-    length: settings.length,
-    max_clips: String(settings.max_clips),
-    sensitivity: String(settings.sensitivity),
-    use_ai: String(settings.use_ai),
-  });
-  const promise = new Promise<Video>((resolve, reject) => {
-    xhr.open("POST", `/api/videos?${params}`);
+export interface UploadCallbacks {
+  onProgress: (loaded: number, total: number) => void;
+  /** Human-readable status changes: resuming, retrying after a dropped connection... */
+  onStatus?: (message: string | null) => void;
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+function putChunk(
+  uploadId: string,
+  offset: number,
+  blob: Blob,
+  onLoaded: (loaded: number) => void,
+  track: (xhr: XMLHttpRequest | null) => void,
+): Promise<UploadSession> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    track(xhr);
+    xhr.open("PUT", `/api/uploads/${uploadId}?offset=${offset}`);
     xhr.setRequestHeader("Content-Type", "application/octet-stream");
-    xhr.upload.onprogress = (e) => onProgress(e.loaded, e.lengthComputable ? e.total : file.size);
+    xhr.upload.onprogress = (e) => onLoaded(e.loaded);
     xhr.onload = () => {
+      track(null);
       let body: unknown = null;
       try {
         body = JSON.parse(xhr.responseText);
       } catch {
-        /* non-JSON error page */
+        /* ignore */
       }
-      if (xhr.status >= 200 && xhr.status < 300) resolve(body as Video);
-      else reject(new ApiError(xhr.status, errorMessage(body, `Upload failed (${xhr.status})`)));
+      if (xhr.status >= 200 && xhr.status < 300) return resolve(body as UploadSession);
+      const err = new ApiError(xhr.status, errorMessage(body, `Upload failed (${xhr.status})`));
+      const detail = (body as { detail?: { received?: number } } | null)?.detail;
+      if (detail && typeof detail === "object" && typeof detail.received === "number") {
+        (err as ApiError & { received?: number }).received = detail.received;
+      }
+      reject(err);
     };
-    xhr.onerror = () => reject(new ApiError(0, "Network error while uploading"));
-    xhr.onabort = () => reject(new ApiError(0, "Upload cancelled"));
-    xhr.send(file);
+    xhr.onerror = () => {
+      track(null);
+      reject(new ApiError(0, "Network error while uploading"));
+    };
+    xhr.onabort = () => {
+      track(null);
+      reject(new ApiError(-1, "Upload cancelled"));
+    };
+    xhr.send(blob);
   });
-  return { promise, abort: () => xhr.abort() };
 }
+
+/**
+ * Uploads in chunks so huge recordings survive flaky connections: failed
+ * chunks are retried with backoff, and picking the same file again resumes
+ * where the last attempt stopped.
+ */
+export function uploadVideo(file: File, settings: AnalyzeSettings, cb: UploadCallbacks): UploadHandle {
+  let cancelled = false;
+  let current: XMLHttpRequest | null = null;
+  let uploadId: string | null = null;
+  const fingerprint = `${file.name}:${file.size}:${file.lastModified}`;
+
+  const promise = (async () => {
+    const session = await request<UploadSession>("/api/uploads", {
+      method: "POST",
+      body: JSON.stringify({ filename: file.name, size: file.size, fingerprint, ...settings }),
+    });
+    uploadId = session.id;
+    let offset = session.received;
+    if (offset > 0) cb.onStatus?.(`Resuming from ${Math.round((offset / file.size) * 100)}%`);
+    cb.onProgress(offset, file.size);
+
+    while (offset < file.size) {
+      const end = Math.min(file.size, offset + session.chunk_size);
+      for (let attempt = 0; ; attempt++) {
+        if (cancelled) throw new ApiError(-1, "Upload cancelled");
+        try {
+          const res = await putChunk(
+            session.id,
+            offset,
+            file.slice(offset, end),
+            (loaded) => cb.onProgress(offset + loaded, file.size),
+            (x) => (current = x),
+          );
+          offset = res.received;
+          if (attempt > 0) cb.onStatus?.(null);
+          break;
+        } catch (e) {
+          if (cancelled || !(e instanceof ApiError)) throw e;
+          const received = (e as ApiError & { received?: number }).received;
+          if (e.status === 409 && typeof received === "number") {
+            offset = received; // server knows better where we are
+            break;
+          }
+          const retryable = e.status === 0 || e.status === 408 || e.status === 429 || e.status >= 500;
+          if (!retryable || attempt >= 8) throw e;
+          const wait = Math.min(30_000, 1000 * 2 ** attempt);
+          cb.onStatus?.(`Connection hiccup. Retrying in ${Math.round(wait / 1000)}s…`);
+          await sleep(wait);
+        }
+      }
+      cb.onProgress(offset, file.size);
+    }
+    cb.onStatus?.(null);
+    return request<Video>(`/api/uploads/${session.id}/complete`, { method: "POST" });
+  })();
+
+  return {
+    promise,
+    abort: () => {
+      cancelled = true;
+      current?.abort();
+      if (uploadId) fetch(`/api/uploads/${uploadId}`, { method: "DELETE" }).catch(() => undefined);
+    },
+  };
+}
+
+export const isBusy = (v: Pick<Video, "status">) =>
+  v.status === "queued" || v.status === "analyzing" || v.status === "downloading";

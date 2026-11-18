@@ -49,11 +49,15 @@ def cleanup_once(days: float | None = None, now: float | None = None) -> int:
 
 
 def clear_stale_work() -> None:
-    """Leftover scratch folders from jobs killed mid-way."""
-    work = get_settings().work_dir
+    """Leftover scratch folders from jobs killed mid-way, and abandoned uploads."""
+    settings = get_settings()
+    work = settings.work_dir
     for child in work.iterdir() if work.exists() else []:
         if child.is_dir() and time.time() - child.stat().st_mtime > 6 * 3600:
             shutil.rmtree(child, ignore_errors=True)
+    for up in db.uploads_older_than(time.time() - 2 * 86400):
+        (settings.partial_dir / f"{up['id']}.part").unlink(missing_ok=True)
+        db.delete_upload(up["id"])
 
 
 def _loop() -> None:
