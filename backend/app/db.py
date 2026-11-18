@@ -345,6 +345,11 @@ def uploads_older_than(cutoff: float) -> list[dict[str, Any]]:
     return [_row(r) for r in rows]  # type: ignore[misc]
 
 
+def queued_videos() -> int:
+    with connect() as conn:
+        return conn.execute("SELECT COUNT(*) FROM videos WHERE status = 'queued'").fetchone()[0]
+
+
 def queue_ahead(video: dict[str, Any]) -> int:
     """How many queued videos (any workspace) are waiting ahead of this one."""
     with connect() as conn:

@@ -25,6 +25,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from . import db, jobs, pipeline, retention
 from .config import get_settings
 from .media import captions, ffmpeg, importer
+from .ratelimit import RateLimitMiddleware
 from .workspace import (
     WorkspaceMiddleware,
     current_workspace,
@@ -61,6 +62,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(title="ClipWizard", version="0.2.0", lifespan=lifespan)
 app.add_middleware(WorkspaceMiddleware)
+app.add_middleware(RateLimitMiddleware)
 Workspace = Depends(current_workspace)
 
 
@@ -303,9 +305,12 @@ def clip_out(c: dict[str, Any]) -> dict[str, Any]:
 
 def _check_video_limits(ws: str, incoming_bytes: int = 0) -> None:
     s = get_settings()
+    if s.max_queue and db.queued_videos() >= s.max_queue:
+        raise HTTPException(503, "ClipWizard is very busy right now. Please try again in a few minutes.")
     usage = db.workspace_usage(ws)
     if s.max_active_videos and usage["busy_videos"] >= s.max_active_videos:
-        raise HTTPException(429, f"You already have {usage['busy_videos']} videos processing. "
+        n = usage["busy_videos"]
+        raise HTTPException(429, f"You already have {n} video{'s' if n != 1 else ''} processing. "
                                  "Wait for one to finish, then try again.")
     quota = int(s.workspace_quota_gb * 1024**3)
     if quota and usage["stored_bytes"] + incoming_bytes > quota:
@@ -317,7 +322,8 @@ def _check_render_limits(ws: str, adding: int = 1) -> None:
     s = get_settings()
     usage = db.workspace_usage(ws)
     if s.max_active_renders and usage["busy_clips"] + adding > s.max_active_renders:
-        raise HTTPException(429, f"You have {usage['busy_clips']} clips rendering. "
+        n = usage["busy_clips"]
+        raise HTTPException(429, f"You have {n} clip{'s' if n != 1 else ''} rendering. "
                                  "Wait for some to finish, then export more.")
 
 

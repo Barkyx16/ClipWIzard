@@ -44,6 +44,9 @@ class Settings:
     max_active_renders: int = field(
         default_factory=lambda: int(os.environ.get("CLIPWIZARD_MAX_ACTIVE_RENDERS", "12"))
     )
+    max_queue: int = field(
+        default_factory=lambda: int(os.environ.get("CLIPWIZARD_MAX_QUEUE", "100"))
+    )
     workspace_quota_gb: float = field(
         default_factory=lambda: float(os.environ.get("CLIPWIZARD_WORKSPACE_QUOTA_GB", "0"))
     )

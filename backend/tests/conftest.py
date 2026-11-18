@@ -12,6 +12,9 @@ sys.path.insert(0, str(ROOT))
 _DATA = tempfile.mkdtemp(prefix="clipwizard-test-")
 os.environ["CLIPWIZARD_DATA_DIR"] = _DATA
 os.environ["CLIPWIZARD_SKIP_DOTENV"] = "1"
+# The suite fires many jobs from one client; rate limits have their own tests.
+os.environ["CLIPWIZARD_RATE_LIMIT_PER_MIN"] = "0"
+os.environ["CLIPWIZARD_RATE_LIMIT_PER_HOUR"] = "0"
 os.environ.pop("ANTHROPIC_API_KEY", None)
 os.environ.pop("ANTHROPIC_AUTH_TOKEN", None)
 

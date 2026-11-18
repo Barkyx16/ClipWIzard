@@ -26,7 +26,8 @@ ready for TikTok, YouTube Shorts and Instagram Reels.
 - **Import from a link.** YouTube, Twitch, Kick, Medal, Streamable, X, TikTok, Reddit, Vimeo, or a direct video-file
   link.
 - **Resumable uploads.** Multi-GB files upload in chunks that retry on bad connections. Picking the same file again
-  resumes where the last attempt stopped.
+  resumes where the last attempt stopped. Drop up to 10 recordings at once.
+- **Timeline previews.** Hover the heat-map timeline to see any moment, which makes long VODs quick to scan.
 
 **Making the clips**
 - **Formats:**
@@ -111,6 +112,9 @@ All settings are environment variables. Put them in `.env` (see [`.env.example`]
 | `CLIPWIZARD_MAX_ACTIVE_VIDEOS` | `3` | Videos one workspace can have processing at once (0 = unlimited) |
 | `CLIPWIZARD_MAX_ACTIVE_RENDERS` | `12` | Clips one workspace can have rendering at once (0 = unlimited) |
 | `CLIPWIZARD_WORKSPACE_QUOTA_GB` | `0` (unlimited) | Storage limit per workspace |
+| `CLIPWIZARD_RATE_LIMIT_PER_MIN` / `_PER_HOUR` | `20` / `200` | Jobs one IP can start (uploads, imports, renders, transcripts); 0 = off |
+| `CLIPWIZARD_TRUST_PROXY` | off | Set to `1` behind a reverse proxy so client IPs come from `X-Forwarded-For` |
+| `CLIPWIZARD_MAX_QUEUE` | `100` | When this many videos are waiting, new ones get a friendly "busy" message |
 | `CLIPWIZARD_FFMPEG_STALL_SECONDS` | `180` | Kill an ffmpeg job that makes no progress for this long |
 | `CLIPWIZARD_IMPORT_USE_PROXY` | off | Set to `1` if the server must reach the internet through an HTTP proxy |
 | `CLIPWIZARD_WORKERS` | `2` | Background jobs that run in parallel |
@@ -187,7 +191,6 @@ the only public routes, and they only exist while a clip is shared.
 This MVP runs on a single server. Before a large public launch, you'll want:
 
 - **Accounts** (email or Discord/Twitch login) on top of the anonymous workspaces, plus storage quotas per user.
-- **Rate limits per IP** on top of the per-workspace job and storage limits that already exist.
 - **A real job queue** (RQ, Celery or Arq) and object storage (S3 or R2) to scale past one machine. Background jobs
   currently run inside the API process.
 - **Sandboxed media processing.** ffmpeg and yt-dlp handle untrusted input, so run them with tight CPU, memory and

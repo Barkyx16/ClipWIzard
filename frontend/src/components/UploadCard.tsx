@@ -96,7 +96,7 @@ export default function UploadCard({ health, onUploaded }: { health: Health | nu
       } catch (e) {
         if (e instanceof ApiError && e.status === 429 && !cancelled.current) {
           setProgress({ loaded: 0, total: file.size, started: performance.now(), base: 0 });
-          setUploadStatus("Waiting for your earlier videos to finish analysing…");
+          setUploadStatus(`${e.message.replace(/\.$/, "")}. Retrying automatically…`);
           await sleep(10_000);
           if (cancelled.current) throw new ApiError(-1, "Upload cancelled");
           continue;
