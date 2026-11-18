@@ -1,152 +1,23 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { AlertTriangle, ArrowLeft, Bot, FolderDown, Loader2, Play, RefreshCw, Repeat } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Bot, FolderDown, Loader2, Play, Repeat } from "lucide-react";
 
-import { api, AnalyzeSettings, Clip, Health, Highlight, isBusy, Rect, Timeline as TimelineData, Video } from "../api";
+import { api, Clip, Health, Highlight, isBusy, Rect, Timeline as TimelineData, Video } from "../api";
 import CaptionReview, { CaptionReviewState } from "../components/CaptionReview";
 import ClipEditor, { EditorState } from "../components/ClipEditor";
 import { groupPhrases, phrasesToWords } from "../lib/captions";
 import { notify } from "../lib/notify";
 import { DEFAULT_FORMAT, FORMAT_KEY, loadFormat, pickFormat, savePref } from "../lib/prefs";
+import AnalyzingState from "../components/AnalyzingState";
 import EditableTitle from "../components/EditableTitle";
+import Kbd from "../components/Kbd";
+import RescanPanel from "../components/RescanPanel";
 import ExportCard from "../components/ExportCard";
 import PlayerStage from "../components/PlayerStage";
 import HighlightsPanel, { MontageOrder, Transition } from "../components/HighlightsPanel";
-import ProgressBar from "../components/ProgressBar";
 import Timeline from "../components/Timeline";
 import { formatTime } from "../lib/format";
 import { usePolling } from "../lib/usePolling";
-
-const TIPS = [
-  "Tip: vertical blur-fill keeps the whole frame visible, perfect for driving clips.",
-  "Tip: use the crosshair buttons to set the clip start/end from the playhead.",
-  "Tip: lower the sensitivity to keep only the biggest moments.",
-  "Tip: burn the title in. Clips with on-screen hooks tend to hold viewers longer.",
-];
-
-function Kbd({ children }: { children: string }) {
-  return (
-    <kbd className="mx-0.5 rounded border border-line bg-surface-2 px-1 py-px font-sans text-[10px] text-muted">
-      {children}
-    </kbd>
-  );
-}
-
-/** Rough time left, from how fast progress has moved since this step started. */
-function useEta(status: string, progress: number): number | null {
-  const start = useRef<{ status: string; t: number; p: number } | null>(null);
-  if (!start.current || start.current.status !== status || progress < start.current.p) {
-    start.current = { status, t: Date.now(), p: progress };
-  }
-  const elapsed = (Date.now() - start.current.t) / 1000;
-  const done = progress - start.current.p;
-  if (elapsed < 5 || done < 0.03 || progress >= 1) return null;
-  return (elapsed / done) * (1 - progress);
-}
-
-function formatEta(seconds: number): string {
-  if (seconds < 60) return "less than a minute left";
-  const m = Math.round(seconds / 60);
-  return m < 60 ? `about ${m} min left` : `about ${Math.floor(m / 60)} h ${m % 60} min left`;
-}
-
-function AnalyzingState({ video }: { video: Video }) {
-  const [tip, setTip] = useState(0);
-  useEffect(() => {
-    const t = setInterval(() => setTip((i) => (i + 1) % TIPS.length), 5000);
-    return () => clearInterval(t);
-  }, []);
-  const eta = useEta(video.status, video.progress);
-  return (
-    <div className="card mx-auto max-w-2xl p-8 text-center">
-      <Loader2 className="mx-auto mb-4 h-10 w-10 animate-spin text-primary" />
-      <h2 className="font-display text-4xl tracking-wide">
-        {video.status === "queued" && video.queue_ahead > 0
-          ? `${video.queue_ahead} ${video.queue_ahead === 1 ? "video" : "videos"} ahead of yours`
-          : `${video.stage ?? "Queued"}…`}
-      </h2>
-      <p className="mt-2 text-sm text-muted">
-        {video.status === "downloading"
-          ? "Grabbing the video. Long VODs can take a while; you can leave this page and come back."
-          : `${formatTime(video.duration)} of footage. Long sessions take a few minutes; you can leave this page and come back.`}
-      </p>
-      <ProgressBar value={video.progress} className="mt-6 h-3" />
-      <p className="mt-2 text-sm font-semibold">
-        {Math.round(video.progress * 100)}%
-        {eta !== null && <span className="font-normal text-muted"> · {formatEta(eta)}</span>}
-      </p>
-      <p className="mt-6 text-xs text-dim">{TIPS[tip]}</p>
-    </div>
-  );
-}
-
-function RescanPanel({ video, onDone }: { video: Video; onDone: (v: Video) => void }) {
-  const [settings, setSettings] = useState<AnalyzeSettings>(video.settings);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const run = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      onDone(await api.reanalyze(video.id, settings));
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Re-scan failed");
-    } finally {
-      setBusy(false);
-    }
-  };
-  return (
-    <details className="relative">
-      <summary className="btn-ghost cursor-pointer list-none">
-        <RefreshCw className="h-4 w-4" /> Re-scan
-      </summary>
-      <div className="card absolute left-0 z-20 mt-2 w-72 space-y-3 p-4 shadow-2xl sm:left-auto sm:right-0">
-        <label className="block">
-          <span className="label">Clip length</span>
-          <select
-            className="input mt-1"
-            value={settings.length}
-            onChange={(e) => setSettings((s) => ({ ...s, length: e.target.value as AnalyzeSettings["length"] }))}
-          >
-            <option value="short">Short (12–30s)</option>
-            <option value="medium">Medium (25–60s)</option>
-            <option value="long">Long (45–90s)</option>
-          </select>
-        </label>
-        <label className="block">
-          <span className="label flex justify-between">
-            Max clips <span className="text-ink">{settings.max_clips}</span>
-          </span>
-          <input
-            type="range"
-            min={1}
-            max={30}
-            value={settings.max_clips}
-            onChange={(e) => setSettings((s) => ({ ...s, max_clips: Number(e.target.value) }))}
-            className="mt-2 w-full"
-          />
-        </label>
-        <label className="block">
-          <span className="label">Sensitivity</span>
-          <input
-            type="range"
-            min={0}
-            max={1}
-            step={0.05}
-            value={settings.sensitivity}
-            onChange={(e) => setSettings((s) => ({ ...s, sensitivity: Number(e.target.value) }))}
-            className="mt-2 w-full"
-          />
-        </label>
-        {error && <p className="text-xs text-bad">{error}</p>}
-        <button type="button" className="btn-primary w-full" disabled={busy} onClick={run}>
-          {busy && <Loader2 className="h-4 w-4 animate-spin" />} Scan again
-        </button>
-        <p className="text-[11px] text-dim">Exported clips are kept. Highlight edits will be replaced.</p>
-      </div>
-    </details>
-  );
-}
 
 export default function ProjectPage() {
   const { id = "" } = useParams();
