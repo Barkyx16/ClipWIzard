@@ -12,6 +12,7 @@ import {
   ScanFace,
   Scissors,
   Trash2,
+  Volume2,
   X,
 } from "lucide-react";
 
@@ -30,6 +31,7 @@ export interface EditorState {
   captionPosition: number;
   watermark: string;
   replay: boolean;
+  normalize: boolean;
 }
 
 export type CaptionStyle = "bold" | "neon" | "clean";
@@ -423,6 +425,21 @@ export default function ClipEditor({
             <Rewind className="h-4 w-4 text-accent" /> Slow-mo replay
           </span>
           <span className="block text-xs text-muted">Replays the peak moment at half speed at the end.</span>
+        </span>
+      </label>
+
+      <label className="flex items-start gap-2 text-sm">
+        <input
+          type="checkbox"
+          className="mt-0.5 h-4 w-4 accent-primary"
+          checked={state.normalize}
+          onChange={(e) => onChange({ normalize: e.target.checked })}
+        />
+        <span>
+          <span className="flex items-center gap-1.5">
+            <Volume2 className="h-4 w-4 text-accent" /> Even out the volume
+          </span>
+          <span className="block text-xs text-muted">Matches the loudness TikTok, Shorts and Reels play at.</span>
         </span>
       </label>
 

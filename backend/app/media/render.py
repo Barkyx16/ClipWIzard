@@ -45,6 +45,8 @@ class RenderOptions:
     watermark: str | None = None
     # Playback speed (0.5 = half-speed slow motion, for replays)
     speed: float = 1.0
+    # Loudness-normalise audio to the level social platforms play at (~-14 LUFS)
+    normalize: bool = True
 
 
 def _escape_filter_path(p: Path | str) -> str:
@@ -239,9 +241,10 @@ def build_command(src: Path, out: Path, start: float, end: float, src_w: int, sr
         out_dur = duration / speed
         fade_out = max(0.0, out_dur - 0.35)
         tempo = f"atempo={speed:g}," if speed != 1.0 else ""
+        loud = "loudnorm=I=-14:TP=-1.5:LRA=11," if opts.normalize else ""
         cmd += [
             "-map", "0:a:0?",
-            "-af", f"{tempo}afade=t=in:st=0:d=0.15,afade=t=out:st={fade_out:.3f}:d=0.35",
+            "-af", f"{tempo}{loud}afade=t=in:st=0:d=0.15,afade=t=out:st={fade_out:.3f}:d=0.35",
             "-c:a", "aac", "-b:a", "160k", "-ar", "48000",
         ]
     else:

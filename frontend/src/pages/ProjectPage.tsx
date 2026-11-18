@@ -166,6 +166,7 @@ export default function ProjectPage() {
     captionPosition: 0.72,
     watermark: loadWatermark(),
     replay: false,
+    normalize: true,
   });
   useEffect(() => savePref("cw_caption_style", editor.captionStyle), [editor.captionStyle]);
   useEffect(() => saveWatermark(editor.watermark), [editor.watermark]);
@@ -332,6 +333,7 @@ export default function ProjectPage() {
         watermark: editor.watermark.trim() || null,
         caption_style: editor.captionStyle,
         caption_position: editor.captionPosition,
+        normalize: editor.normalize,
         replay: editor.replay,
       });
       setVideo((v) => (v ? { ...v, clips: [clip, ...(v.clips ?? [])] } : v));
@@ -358,6 +360,7 @@ export default function ProjectPage() {
         watermark: editor.watermark.trim() || null,
         caption_style: editor.captionStyle,
         caption_position: editor.captionPosition,
+        normalize: editor.normalize,
         replay: editor.replay,
       });
       load();
@@ -380,6 +383,7 @@ export default function ProjectPage() {
         watermark: editor.watermark.trim() || null,
         caption_style: editor.captionStyle,
         caption_position: editor.captionPosition,
+        normalize: editor.normalize,
       });
       setVideo((v) => (v ? { ...v, clips: [clip, ...(v.clips ?? [])] } : v));
       document.getElementById("exports-heading")?.scrollIntoView({ behavior: "smooth", block: "start" });
