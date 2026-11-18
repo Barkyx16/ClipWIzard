@@ -95,6 +95,12 @@ To serve the built UI from the backend (one port, the same way Docker does it), 
 make test                   # backend pytest suite + frontend type-check
 ```
 
+End-to-end browser tests (Playwright) run the real backend with the built UI:
+
+```bash
+cd frontend && npm run build && npm run e2e
+```
+
 ## Configuration
 
 All settings are environment variables. Put them in `.env` (see [`.env.example`](.env.example)).
