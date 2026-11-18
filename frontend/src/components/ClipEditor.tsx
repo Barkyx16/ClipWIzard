@@ -25,8 +25,18 @@ export interface EditorState {
   titleOverlay: boolean;
   title: string;
   captions: boolean;
+  captionStyle: CaptionStyle;
+  captionPosition: number;
   watermark: string;
 }
+
+export type CaptionStyle = "bold" | "neon" | "clean";
+
+const CAPTION_STYLES: { value: CaptionStyle; label: string; sample: string; className: string }[] = [
+  { value: "bold", label: "Bold", sample: "NO WAY", className: "font-black uppercase text-[#FFD84D]" },
+  { value: "neon", label: "Neon", sample: "NO WAY", className: "font-black uppercase text-[#FF3D8B]" },
+  { value: "clean", label: "Clean", sample: "No way", className: "font-semibold text-white" },
+];
 
 const ASPECTS: { value: Aspect; label: string; hint: string; w: number; h: number; tip: string }[] = [
   {
@@ -357,6 +367,47 @@ export default function ClipEditor({
           </span>
         </span>
       </label>
+
+      {state.captions && captionsAvailable && (
+        <div className="-mt-2 space-y-3 rounded-xl border border-line bg-surface-2/60 p-3">
+          <div className="grid grid-cols-3 gap-1.5" role="radiogroup" aria-label="Caption style">
+            {CAPTION_STYLES.map((c) => (
+              <button
+                key={c.value}
+                type="button"
+                role="radio"
+                aria-checked={state.captionStyle === c.value}
+                onClick={() => onChange({ captionStyle: c.value })}
+                className={`rounded-lg border px-2 py-1.5 text-center transition ${
+                  state.captionStyle === c.value ? "border-primary bg-bg" : "border-line bg-bg/40 hover:border-muted/60"
+                }`}
+              >
+                <span className={`block text-sm [text-shadow:_0_0_3px_#000,_0_0_3px_#000] ${c.className}`} aria-hidden>
+                  {c.sample}
+                </span>
+                <span className="text-[10px] text-muted">{c.label}</span>
+              </button>
+            ))}
+          </div>
+          <label className="block">
+            <span className="label flex justify-between">
+              Caption height
+              <span className="normal-case tracking-normal text-ink">
+                {state.captionPosition > 0.8 ? "Low" : state.captionPosition < 0.55 ? "Middle" : "Lower third"}
+              </span>
+            </span>
+            <input
+              type="range"
+              min={0.4}
+              max={0.9}
+              step={0.01}
+              value={state.captionPosition}
+              onChange={(e) => onChange({ captionPosition: Number(e.target.value) })}
+              className="mt-2 w-full"
+            />
+          </label>
+        </div>
+      )}
 
       <div className="space-y-2">
         <label className="flex items-center gap-2 text-sm">

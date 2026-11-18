@@ -333,6 +333,30 @@ def uploads_older_than(cutoff: float) -> list[dict[str, Any]]:
     return [_row(r) for r in rows]  # type: ignore[misc]
 
 
+def workspace_usage(workspace: str) -> dict[str, int]:
+    """Active jobs and stored bytes for a workspace (used for limits)."""
+    with connect() as conn:
+        busy_videos = conn.execute(
+            "SELECT COUNT(*) FROM videos WHERE workspace = ? AND status IN ('queued', 'analyzing', 'downloading')",
+            (workspace,),
+        ).fetchone()[0]
+        busy_clips = conn.execute(
+            "SELECT COUNT(*) FROM clips c JOIN videos v ON v.id = c.video_id "
+            "WHERE v.workspace = ? AND c.status IN ('queued', 'rendering')",
+            (workspace,),
+        ).fetchone()[0]
+        video_bytes = conn.execute(
+            "SELECT COALESCE(SUM(size_bytes), 0) FROM videos WHERE workspace = ?", (workspace,)
+        ).fetchone()[0]
+        clip_bytes = conn.execute(
+            "SELECT COALESCE(SUM(c.size_bytes), 0) FROM clips c JOIN videos v ON v.id = c.video_id "
+            "WHERE v.workspace = ?",
+            (workspace,),
+        ).fetchone()[0]
+    return {"busy_videos": busy_videos, "busy_clips": busy_clips,
+            "stored_bytes": int(video_bytes) + int(clip_bytes)}
+
+
 def videos_older_than(cutoff: float) -> list[dict[str, Any]]:
     with connect() as conn:
         rows = conn.execute(

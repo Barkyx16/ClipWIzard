@@ -252,8 +252,8 @@ def _render_options(video: dict[str, Any], o: dict[str, Any], start: float, end:
     return opts
 
 
-def _add_captions(src: Path, video: dict[str, Any], opts: RenderOptions, start: float, end: float,
-                  work: Path, tag: str) -> tuple[str | None, str | None]:
+def _add_captions(src: Path, video: dict[str, Any], opts: RenderOptions, o: dict[str, Any],
+                  start: float, end: float, work: Path, tag: str) -> tuple[str | None, str | None]:
     """Transcribe [start, end] and attach burned-in captions. Returns (transcript, warning)."""
     try:
         words = captions.transcribe(src, start, end, work)
@@ -263,8 +263,10 @@ def _add_captions(src: Path, video: dict[str, Any], opts: RenderOptions, start: 
         return None, "No speech found for captions"
     out_w, out_h = output_size(opts.aspect, int(video["width"]), int(video["height"]))
     ass = work / f"captions_{tag}.ass"
+    position = float(o.get("caption_position") or (0.85 if opts.aspect == "landscape" else 0.72))
     ass.write_text(captions.build_ass(
-        words, out_w, out_h, end - start, position=0.85 if opts.aspect == "landscape" else 0.72,
+        words, out_w, out_h, end - start, position=min(0.92, max(0.3, position)),
+        style=str(o.get("caption_style") or "bold"),
     ), encoding="utf-8")
     opts.captions_ass = ass
     return captions.transcript_text(words) or None, None
@@ -279,7 +281,7 @@ def _render_piece(src: Path, out: Path, video: dict[str, Any], o: dict[str, Any]
     render_lo = lo
     if o.get("captions"):
         prog.span(lo, lo + (hi - lo) * 0.3)
-        transcript, warning = _add_captions(src, video, opts, start, end, work, tag)
+        transcript, warning = _add_captions(src, video, opts, o, start, end, work, tag)
         render_lo = lo + (hi - lo) * 0.3
     prog.span(render_lo, hi)
     render_clip(src, out, start, end, int(video["width"]), int(video["height"]),

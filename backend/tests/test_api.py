@@ -342,3 +342,36 @@ def test_share_links(client, demo_video):
         assert stranger.get(f"/api/share/{token}").status_code == 404
         assert stranger.get(f"/share/{token}/video.mp4").status_code == 404
     client.delete(f"/api/videos/{vid}")
+
+
+def test_workspace_limits(demo_video, monkeypatch):
+    from app.config import get_settings
+    from app.main import app
+
+    settings = get_settings()
+    monkeypatch.setattr(settings.__class__, "max_active_videos", property(lambda self: 1), raising=False)
+    with TestClient(app) as c:
+        first = _upload(c, demo_video, max_clips=1)
+        assert first.status_code == 201
+        # A second upload while the first is still processing is refused.
+        second = _upload(c, demo_video, max_clips=1)
+        if c.get(f"/api/videos/{first.json()['id']}").json()["status"] != "ready":
+            assert second.status_code == 429, second.text
+        _wait(c, f"/api/videos/{first.json()['id']}")
+        if second.status_code == 201:
+            _wait(c, f"/api/videos/{second.json()['id']}")
+            c.delete(f"/api/videos/{second.json()['id']}")
+
+        monkeypatch.setattr(settings.__class__, "workspace_quota_gb", property(lambda self: 0.001), raising=False)
+        r = c.post("/api/uploads", json={"filename": "x.mp4", "size": 5 * 1024 * 1024, "fingerprint": "q"})
+        assert r.status_code == 413 and "full" in r.json()["detail"]
+
+        monkeypatch.setattr(settings.__class__, "max_active_renders", property(lambda self: 1), raising=False)
+        vid = first.json()["id"]
+        r1 = c.post(f"/api/videos/{vid}/clips", json={"start": 1, "end": 4, "quality": "fast"})
+        assert r1.status_code == 201
+        r2 = c.post(f"/api/videos/{vid}/clips", json={"start": 5, "end": 8, "quality": "fast"})
+        if c.get(f"/api/clips/{r1.json()['id']}").json()["status"] in ("queued", "rendering"):
+            assert r2.status_code == 429
+        _wait(c, f"/api/clips/{r1.json()['id']}")
+        c.delete(f"/api/videos/{vid}")

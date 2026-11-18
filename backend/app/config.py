@@ -37,6 +37,17 @@ class Settings:
         default_factory=lambda: int(os.environ.get("CLIPWIZARD_AI_MAX_HIGHLIGHTS", "15"))
     )
 
+    # Abuse limits per workspace (0 = unlimited).
+    max_active_videos: int = field(
+        default_factory=lambda: int(os.environ.get("CLIPWIZARD_MAX_ACTIVE_VIDEOS", "3"))
+    )
+    max_active_renders: int = field(
+        default_factory=lambda: int(os.environ.get("CLIPWIZARD_MAX_ACTIVE_RENDERS", "12"))
+    )
+    workspace_quota_gb: float = field(
+        default_factory=lambda: float(os.environ.get("CLIPWIZARD_WORKSPACE_QUOTA_GB", "0"))
+    )
+
     # Optional path to a TTF font for burned-in titles.
     font_path: str | None = field(default_factory=lambda: os.environ.get("CLIPWIZARD_FONT"))
 

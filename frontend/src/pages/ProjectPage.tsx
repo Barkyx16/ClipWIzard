@@ -3,7 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import { AlertTriangle, ArrowLeft, Bot, Loader2, Play, RefreshCw, Repeat } from "lucide-react";
 
 import { api, AnalyzeSettings, Clip, Health, Highlight, isBusy, Rect, Timeline as TimelineData, Video } from "../api";
-import ClipEditor, { EditorState } from "../components/ClipEditor";
+import ClipEditor, { CaptionStyle, EditorState } from "../components/ClipEditor";
 import ExportCard from "../components/ExportCard";
 import PlayerStage from "../components/PlayerStage";
 import HighlightsPanel, { MontageOrder, Transition } from "../components/HighlightsPanel";
@@ -21,21 +21,24 @@ const TIPS = [
 
 const WATERMARK_KEY = "cw_watermark";
 
-function loadWatermark(): string {
+function loadPref(key: string, fallback: string): string {
   try {
-    return localStorage.getItem(WATERMARK_KEY) ?? "";
+    return localStorage.getItem(key) ?? fallback;
   } catch {
-    return "";
+    return fallback;
   }
 }
 
-function saveWatermark(value: string) {
+function savePref(key: string, value: string) {
   try {
-    localStorage.setItem(WATERMARK_KEY, value);
+    localStorage.setItem(key, value);
   } catch {
     /* storage unavailable (private mode) */
   }
 }
+
+const loadWatermark = () => loadPref(WATERMARK_KEY, "");
+const saveWatermark = (value: string) => savePref(WATERMARK_KEY, value);
 
 function Kbd({ children }: { children: string }) {
   return (
@@ -155,8 +158,11 @@ export default function ProjectPage() {
     titleOverlay: true,
     title: "",
     captions: true,
+    captionStyle: loadPref("cw_caption_style", "bold") as CaptionStyle,
+    captionPosition: 0.72,
     watermark: loadWatermark(),
   });
+  useEffect(() => savePref("cw_caption_style", editor.captionStyle), [editor.captionStyle]);
   useEffect(() => saveWatermark(editor.watermark), [editor.watermark]);
   const [health, setHealth] = useState<Health | null>(null);
   useEffect(() => {
@@ -319,6 +325,8 @@ export default function ProjectPage() {
         title: editor.title.trim() || null,
         captions: captionsOn,
         watermark: editor.watermark.trim() || null,
+        caption_style: editor.captionStyle,
+        caption_position: editor.captionPosition,
       });
       setVideo((v) => (v ? { ...v, clips: [clip, ...(v.clips ?? [])] } : v));
       load();
@@ -342,6 +350,8 @@ export default function ProjectPage() {
         top: Math.min(5, highlights.length),
         captions: captionsOn,
         watermark: editor.watermark.trim() || null,
+        caption_style: editor.captionStyle,
+        caption_position: editor.captionPosition,
       });
       load();
     } catch (e) {
@@ -361,6 +371,8 @@ export default function ProjectPage() {
         title_overlay: editor.titleOverlay,
         captions: captionsOn,
         watermark: editor.watermark.trim() || null,
+        caption_style: editor.captionStyle,
+        caption_position: editor.captionPosition,
       });
       setVideo((v) => (v ? { ...v, clips: [clip, ...(v.clips ?? [])] } : v));
       document.getElementById("exports-heading")?.scrollIntoView({ behavior: "smooth", block: "start" });

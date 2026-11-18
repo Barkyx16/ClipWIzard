@@ -129,15 +129,27 @@ def _ass_color(hex_rgb: str) -> str:
     """#RRGGBB -> ASS &H00BBGGRR."""
     h = hex_rgb.lstrip("#")
     r, g, b = h[0:2], h[2:4], h[4:6]
-    return f"&H00{b}{g}{r}".upper()
+    return f"&H00{b}{g}{r}&".upper()
+
+
+STYLES: dict[str, dict] = {
+    # name: highlight colour, uppercase, relative size, pop the active word
+    "bold": {"highlight": "#FFD84D", "uppercase": True, "scale": 1.0, "pop": True},
+    "neon": {"highlight": "#FF3D8B", "uppercase": True, "scale": 1.0, "pop": True},
+    "clean": {"highlight": "#FFFFFF", "uppercase": False, "scale": 0.82, "pop": False},
+}
 
 
 def build_ass(words: list[Word], out_w: int, out_h: int, duration: float,
-              highlight: str = "#FFD84D", position: float = 0.70, uppercase: bool = True,
-              font: str = "DejaVu Sans") -> str:
+              highlight: str | None = None, position: float = 0.70, uppercase: bool | None = None,
+              font: str = "DejaVu Sans", style: str = "bold") -> str:
     """ASS script with one event per spoken word; that word is highlighted."""
+    preset = STYLES.get(style, STYLES["bold"])
+    highlight = highlight or preset["highlight"]
+    uppercase = preset["uppercase"] if uppercase is None else uppercase
+    pop = preset["pop"]
     vertical = out_h > out_w
-    size = int(out_w * (0.085 if vertical else 0.05))
+    size = int(out_w * (0.085 if vertical else 0.05) * preset["scale"])
     margin_v = int(out_h * (1 - position))
     hl = _ass_color(highlight)
     lines = [
@@ -166,10 +178,9 @@ def build_ass(words: list[Word], out_w: int, out_h: int, duration: float,
             end = min(duration, max(nxt, start + 0.08))
             if start >= duration:
                 break
-            parts = [
-                (f"{{\\c{hl}\\fscx108\\fscy108}}{t}{{\\c&H00FFFFFF&\\fscx100\\fscy100}}" if j == i else t)
-                for j, t in enumerate(texts)
-            ]
+            on = f"{{\\c{hl}\\fscx108\\fscy108}}" if pop else f"{{\\c{hl}}}"
+            off = "{\\c&H00FFFFFF&\\fscx100\\fscy100}" if pop else "{\\c&H00FFFFFF&}"
+            parts = [f"{on}{t}{off}" if j == i else t for j, t in enumerate(texts)]
             lines.append(f"Dialogue: 0,{_ass_time(start)},{_ass_time(end)},Caption,,0,0,0,,{' '.join(parts)}")
     return "\n".join(lines) + "\n"
 

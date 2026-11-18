@@ -53,6 +53,8 @@ export interface ClipOptions {
   title: string | null;
   quality: "high" | "fast";
   captions: boolean;
+  caption_style?: string;
+  caption_position?: number;
   watermark?: string | null;
   kind?: "montage";
   segments?: { highlight_id: string; start: number; end: number; title: string }[];
@@ -180,7 +182,15 @@ export const api = {
   ) => request<Clip>(`/api/videos/${videoId}/clips`, { method: "POST", body: JSON.stringify(body) }),
   exportAll: (
     videoId: string,
-    body: { aspect: Aspect; title_overlay: boolean; top: number; captions: boolean; watermark?: string | null },
+    body: {
+      aspect: Aspect;
+      title_overlay: boolean;
+      top: number;
+      captions: boolean;
+      watermark?: string | null;
+      caption_style?: string;
+      caption_position?: number;
+    },
   ) => request<Clip[]>(`/api/videos/${videoId}/export-all`, { method: "POST", body: JSON.stringify(body) }),
   createHighlight: (videoId: string, body: { start: number; end: number; title?: string }) =>
     request<Highlight>(`/api/videos/${videoId}/highlights`, { method: "POST", body: JSON.stringify(body) }),
@@ -195,6 +205,8 @@ export const api = {
       title_overlay: boolean;
       captions: boolean;
       watermark?: string | null;
+      caption_style?: string;
+      caption_position?: number;
     },
   ) => request<Clip>(`/api/videos/${videoId}/montage`, { method: "POST", body: JSON.stringify(body) }),
   deleteClip: (id: string) => request<void>(`/api/clips/${id}`, { method: "DELETE" }),

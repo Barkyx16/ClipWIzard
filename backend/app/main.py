@@ -32,6 +32,7 @@ from .workspace import (
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("clipwizard")
 
+CaptionStyle = Literal["bold", "neon", "clean"]
 Aspect = Literal[
     "landscape", "vertical_blur", "vertical_crop", "vertical_smart", "vertical_facecam", "square"
 ]
@@ -87,6 +88,8 @@ class ClipCreate(BaseModel):
     title: str | None = Field(None, max_length=120)
     quality: Literal["high", "fast"] = "high"
     captions: bool = False
+    caption_style: CaptionStyle = "bold"
+    caption_position: float = Field(0.72, ge=0.3, le=0.92)
     watermark: str | None = Field(None, max_length=40)
 
     @model_validator(mode="after")
@@ -104,6 +107,8 @@ class ExportAll(BaseModel):
     top: int = Field(5, ge=1, le=30)
     quality: Literal["high", "fast"] = "high"
     captions: bool = False
+    caption_style: CaptionStyle = "bold"
+    caption_position: float = Field(0.72, ge=0.3, le=0.92)
     watermark: str | None = Field(None, max_length=40)
 
 
@@ -145,6 +150,8 @@ class MontageCreate(BaseModel):
     aspect: Aspect = "vertical_blur"
     title_overlay: bool = True
     captions: bool = False
+    caption_style: CaptionStyle = "bold"
+    caption_position: float = Field(0.72, ge=0.3, le=0.92)
     quality: Literal["high", "fast"] = "high"
     watermark: str | None = Field(None, max_length=40)
 
@@ -246,6 +253,26 @@ def clip_out(c: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _check_video_limits(ws: str, incoming_bytes: int = 0) -> None:
+    s = get_settings()
+    usage = db.workspace_usage(ws)
+    if s.max_active_videos and usage["busy_videos"] >= s.max_active_videos:
+        raise HTTPException(429, f"You already have {usage['busy_videos']} videos processing. "
+                                 "Wait for one to finish, then try again.")
+    quota = int(s.workspace_quota_gb * 1024**3)
+    if quota and usage["stored_bytes"] + incoming_bytes > quota:
+        raise HTTPException(413, f"Your workspace is full ({s.workspace_quota_gb:g} GB). "
+                                 "Delete old sessions or clips to make room.")
+
+
+def _check_render_limits(ws: str, adding: int = 1) -> None:
+    s = get_settings()
+    usage = db.workspace_usage(ws)
+    if s.max_active_renders and usage["busy_clips"] + adding > s.max_active_renders:
+        raise HTTPException(429, f"You have {usage['busy_clips']} clips rendering. "
+                                 "Wait for some to finish, then export more.")
+
+
 def _video_or_404(video_id: str, ws: str) -> dict[str, Any]:
     v = db.get_video(video_id)
     if v is None or not same_workspace(v.get("workspace"), ws):
@@ -328,6 +355,7 @@ async def upload_video(
         raise HTTPException(400, f"Unsupported file type '{ext}'. Use one of: "
                                  + ", ".join(sorted(ALLOWED_EXTENSIONS)))
     declared = request.headers.get("content-length")
+    _check_video_limits(ws, int(declared) if declared and declared.isdigit() else 0)
     limit = s.max_upload_mb * 1024 * 1024
     if declared and declared.isdigit() and int(declared) > limit:
         raise HTTPException(413, f"File is larger than the {s.max_upload_mb} MB limit")
@@ -373,6 +401,7 @@ def import_link(body: ImportRequest, ws: str = Workspace) -> dict[str, Any]:
         importer.classify(body.url)
     except importer.ImportFailed as e:
         raise HTTPException(400, str(e)) from e
+    _check_video_limits(ws)
     video_id = db.new_id()
     settings = AnalyzeSettings(**body.model_dump(exclude={"url"}))
     v = db.create_video(
@@ -418,6 +447,8 @@ def start_upload(body: UploadStart, ws: str = Workspace) -> dict[str, Any]:
     if body.size > s.max_upload_mb * 1024 * 1024:
         raise HTTPException(413, f"File is larger than the {s.max_upload_mb} MB limit")
     existing = db.find_upload(ws, body.fingerprint)
+    if not existing:
+        _check_video_limits(ws, body.size)
     if existing and existing["size"] == body.size:
         part = _partial(existing["id"])
         on_disk = part.stat().st_size if part.exists() else 0
@@ -472,6 +503,7 @@ def complete_upload(upload_id: str, ws: str = Workspace) -> dict[str, Any]:
     part = _partial(upload_id)
     if u["received"] != u["size"] or not part.exists() or part.stat().st_size != u["size"]:
         raise HTTPException(409, detail={"message": "Upload is not finished", "received": u["received"]})
+    _check_video_limits(ws)
     video_id = db.new_id()
     ext = Path(u["filename"]).suffix.lower()
     dest = get_settings().uploads_dir / f"{video_id}{ext}"
@@ -523,6 +555,7 @@ def reanalyze(video_id: str, body: AnalyzeSettings, ws: str = Workspace) -> dict
         raise HTTPException(409, "This video is already being processed")
     if not (get_settings().uploads_dir / v["filename"]).exists():
         raise HTTPException(409, "The video file is missing, so it can't be re-scanned")
+    _check_video_limits(ws)
     db.update_video(video_id, settings=body.model_dump(), status="queued", stage="Queued",
                     progress=0.0, error=None)
     jobs.submit(pipeline.analyze_video, video_id)
@@ -619,7 +652,8 @@ def _queue_clip(v: dict[str, Any], body: ClipCreate) -> dict[str, Any]:
         if h is None or h["video_id"] != v["id"]:
             raise HTTPException(404, "Highlight not found for this video")
     options = body.model_dump(
-        include={"aspect", "crop_x", "title_overlay", "title", "quality", "captions", "watermark"}
+        include={"aspect", "crop_x", "title_overlay", "title", "quality", "captions", "caption_style",
+                 "caption_position", "watermark"}
     )
     if body.aspect == "vertical_facecam":
         facecam = (v.get("layout") or {}).get("facecam")
@@ -634,7 +668,9 @@ def _queue_clip(v: dict[str, Any], body: ClipCreate) -> dict[str, Any]:
 
 @app.post("/api/videos/{video_id}/clips", status_code=201)
 def create_clip(video_id: str, body: ClipCreate, ws: str = Workspace) -> dict[str, Any]:
-    return _queue_clip(_video_or_404(video_id, ws), body)
+    v = _video_or_404(video_id, ws)
+    _check_render_limits(ws)
+    return _queue_clip(v, body)
 
 
 @app.post("/api/videos/{video_id}/export-all", status_code=201)
@@ -642,12 +678,14 @@ def export_all(video_id: str, body: ExportAll, ws: str = Workspace) -> list[dict
     v = _video_or_404(video_id, ws)
     if v["status"] != "ready":
         raise HTTPException(409, "Video analysis has not finished yet")
+    _check_render_limits(ws, min(body.top, len(db.list_highlights(video_id))))
     out = []
     for h in db.list_highlights(video_id)[: body.top]:
         out.append(_queue_clip(v, ClipCreate(
             highlight_id=h["id"], start=h["start"], end=h["end"], aspect=body.aspect,
             title_overlay=body.title_overlay, title=h["title"], quality=body.quality,
-            captions=body.captions, watermark=body.watermark,
+            captions=body.captions, caption_style=body.caption_style,
+            caption_position=body.caption_position, watermark=body.watermark,
         )))
     return out
 
@@ -663,6 +701,7 @@ def create_montage(video_id: str, body: MontageCreate, ws: str = Workspace) -> d
         raise HTTPException(409, "Video analysis has not finished yet")
     if len(set(body.highlight_ids)) != len(body.highlight_ids):
         raise HTTPException(422, "Each moment can only be used once")
+    _check_render_limits(ws)
     by_id = {h["id"]: h for h in db.list_highlights(video_id)}
     picked = []
     for hid in body.highlight_ids:
@@ -686,6 +725,8 @@ def create_montage(video_id: str, body: MontageCreate, ws: str = Workspace) -> d
         "title_overlay": body.title_overlay,
         "title": f"Top {len(picked)} moments",
         "captions": body.captions,
+        "caption_style": body.caption_style,
+        "caption_position": body.caption_position,
         "quality": body.quality,
         "watermark": body.watermark,
     }
