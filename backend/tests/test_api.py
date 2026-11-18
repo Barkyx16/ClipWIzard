@@ -253,3 +253,54 @@ def test_montage_flow(client, demo_video):
     dl = client.get(done["download_url"])
     assert "montage" in dl.headers["content-disposition"]
     client.delete(f"/api/videos/{vid}")
+
+
+def test_custom_and_deleted_highlights(client, demo_video):
+    vid = _upload(client, demo_video, max_clips=3).json()["id"]
+    video = _wait(client, f"/api/videos/{vid}")
+    assert client.post(f"/api/videos/{vid}/highlights", json={"start": 5, "end": 5.5}).status_code == 422
+
+    r = client.post(f"/api/videos/{vid}/highlights", json={"start": 2, "end": 9, "title": "Funny NPC"})
+    assert r.status_code == 201, r.text
+    custom = r.json()
+    assert custom["category"] == "Custom" and custom["title"] == "Funny NPC"
+    assert custom["rank"] == 3 and custom["thumbnail_url"]
+    assert 0 <= custom["score"] <= 100
+
+    first = video["highlights"][0]["id"]
+    assert client.delete(f"/api/highlights/{first}").status_code == 204
+    hl = client.get(f"/api/videos/{vid}").json()["highlights"]
+    assert [h["rank"] for h in hl] == [0, 1, 2]
+    assert hl[-1]["id"] == custom["id"]
+    assert client.delete(f"/api/highlights/{first}").status_code == 404
+    client.delete(f"/api/videos/{vid}")
+
+
+def test_watermark_render(client, demo_video):
+    vid = _upload(client, demo_video, max_clips=1).json()["id"]
+    _wait(client, f"/api/videos/{vid}")
+    r = client.post(f"/api/videos/{vid}/clips", json={
+        "start": 25, "end": 27, "watermark": "@clipking", "quality": "fast"})
+    clip = _wait(client, f"/api/clips/{r.json()['id']}")
+    assert clip["status"] == "done", clip["error"]
+    assert clip["options"]["watermark"] == "@clipking"
+    too_long = client.post(f"/api/videos/{vid}/clips", json={"start": 1, "end": 3, "watermark": "x" * 41})
+    assert too_long.status_code == 422
+    client.delete(f"/api/videos/{vid}")
+
+
+def test_retention_cleanup(client, demo_video):
+    import time as _time
+
+    from app import db, retention
+    from app.config import get_settings
+
+    vid = _upload(client, demo_video, max_clips=1).json()["id"]
+    _wait(client, f"/api/videos/{vid}")
+    upload = get_settings().uploads_dir / db.get_video(vid)["filename"]
+    assert upload.exists()
+    assert retention.cleanup_once(days=0) == 0
+    assert retention.cleanup_once(days=1) == 0  # still fresh
+    removed = retention.cleanup_once(days=1, now=_time.time() + 2 * 86400)
+    assert removed >= 1
+    assert db.get_video(vid) is None and not upload.exists()

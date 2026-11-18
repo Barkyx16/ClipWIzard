@@ -262,6 +262,34 @@ def update_highlight(highlight_id: str, **fields: Any) -> None:
     _update("highlights", highlight_id, fields)
 
 
+def insert_highlight(video_id: str, highlight: dict[str, Any]) -> None:
+    values = _encode({**highlight, "video_id": video_id})
+    cols = ", ".join(values)
+    marks = ", ".join("?" for _ in values)
+    with connect() as conn:
+        conn.execute(f"INSERT INTO highlights ({cols}) VALUES ({marks})", tuple(values.values()))
+
+
+def delete_highlight(highlight_id: str) -> None:
+    with connect() as conn:
+        row = conn.execute("SELECT video_id FROM highlights WHERE id = ?", (highlight_id,)).fetchone()
+        conn.execute("DELETE FROM highlights WHERE id = ?", (highlight_id,))
+        if row:
+            ids = [r["id"] for r in conn.execute(
+                "SELECT id FROM highlights WHERE video_id = ? ORDER BY rank ASC", (row["video_id"],))]
+            for rank, hid in enumerate(ids):
+                conn.execute("UPDATE highlights SET rank = ? WHERE id = ?", (rank, hid))
+
+
+def videos_older_than(cutoff: float) -> list[dict[str, Any]]:
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM videos WHERE updated_at < ? AND status NOT IN ('queued', 'analyzing', 'downloading')",
+            (cutoff,),
+        ).fetchall()
+    return [_row(r) for r in rows]  # type: ignore[misc]
+
+
 # ---------------------------------------------------------------- clips
 
 

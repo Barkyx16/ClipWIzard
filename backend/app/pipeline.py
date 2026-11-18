@@ -240,6 +240,7 @@ def _render_options(video: dict[str, Any], o: dict[str, Any], start: float, end:
         title=(title or None) if o.get("title_overlay") else None,
         quality=str(o.get("quality", "high")),
         facecam=o.get("facecam") or None,
+        watermark=(o.get("watermark") or "").strip() or None,
     )
     if opts.aspect == "vertical_facecam" and not opts.facecam:
         opts.aspect = "vertical_smart"  # no facecam marked: fall back to a smart crop

@@ -19,6 +19,32 @@ const TIPS = [
   "Tip: burn the title in. Clips with on-screen hooks tend to hold viewers longer.",
 ];
 
+const WATERMARK_KEY = "cw_watermark";
+
+function loadWatermark(): string {
+  try {
+    return localStorage.getItem(WATERMARK_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function saveWatermark(value: string) {
+  try {
+    localStorage.setItem(WATERMARK_KEY, value);
+  } catch {
+    /* storage unavailable (private mode) */
+  }
+}
+
+function Kbd({ children }: { children: string }) {
+  return (
+    <kbd className="mx-0.5 rounded border border-line bg-surface-2 px-1 py-px font-sans text-[10px] text-muted">
+      {children}
+    </kbd>
+  );
+}
+
 function AnalyzingState({ video }: { video: Video }) {
   const [tip, setTip] = useState(0);
   useEffect(() => {
@@ -129,7 +155,9 @@ export default function ProjectPage() {
     titleOverlay: true,
     title: "",
     captions: true,
+    watermark: loadWatermark(),
   });
+  useEffect(() => saveWatermark(editor.watermark), [editor.watermark]);
   const [health, setHealth] = useState<Health | null>(null);
   useEffect(() => {
     api
@@ -205,6 +233,61 @@ export default function ProjectPage() {
     setCurrentTime(el.currentTime);
   };
 
+  // Keyboard shortcuts (ignored while typing in a field).
+  const shortcuts = useRef<(e: KeyboardEvent) => void>(() => undefined);
+  shortcuts.current = (e: KeyboardEvent) => {
+    const el = videoRef.current;
+    const target = e.target as HTMLElement | null;
+    if (!el || !video || drawingFacecam || e.metaKey || e.ctrlKey || e.altKey) return;
+    if (target?.closest("input, textarea, select, [contenteditable=true]")) return;
+    // Let focused native controls keep their own keys.
+    if (target?.tagName === "VIDEO" && [" ", "ArrowLeft", "ArrowRight"].includes(e.key)) return;
+    if (e.key === " " && target?.closest("button, a, summary, [role=slider], [role=checkbox], [role=tab]")) return;
+    const t = el.currentTime;
+    const idx = highlights.findIndex((h) => h.id === selectedId);
+    const handled = (() => {
+      switch (e.key) {
+        case " ":
+        case "k":
+          if (el.paused) el.play().catch(() => undefined);
+          else el.pause();
+          return true;
+        case "i":
+          setEditor((s) => ({ ...s, start: Math.min(t, s.end - 1) }));
+          return true;
+        case "o":
+          setEditor((s) => ({ ...s, end: Math.max(t, s.start + 1) }));
+          return true;
+        case "ArrowLeft":
+          seek(Math.max(0, t - (e.shiftKey ? 1 : 5)));
+          return true;
+        case "ArrowRight":
+          seek(Math.min(video.duration, t + (e.shiftKey ? 1 : 5)));
+          return true;
+        case "j":
+          seek(Math.max(0, t - 10));
+          return true;
+        case "l":
+          seek(Math.min(video.duration, t + 10));
+          return true;
+        case "[":
+          if (idx > 0) select(highlights[idx - 1]);
+          return true;
+        case "]":
+          if (idx < highlights.length - 1) select(highlights[idx + 1]);
+          return true;
+        default:
+          return false;
+      }
+    })();
+    if (handled) e.preventDefault();
+  };
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => shortcuts.current(e);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   const seek = (t: number) => {
     const el = videoRef.current;
     if (el) el.currentTime = t;
@@ -235,6 +318,7 @@ export default function ProjectPage() {
         title_overlay: editor.titleOverlay && editor.title.trim() !== "",
         title: editor.title.trim() || null,
         captions: captionsOn,
+        watermark: editor.watermark.trim() || null,
       });
       setVideo((v) => (v ? { ...v, clips: [clip, ...(v.clips ?? [])] } : v));
       load();
@@ -257,6 +341,7 @@ export default function ProjectPage() {
         title_overlay: editor.titleOverlay,
         top: Math.min(5, highlights.length),
         captions: captionsOn,
+        watermark: editor.watermark.trim() || null,
       });
       load();
     } catch (e) {
@@ -275,6 +360,7 @@ export default function ProjectPage() {
         aspect: editor.aspect === "vertical_crop" ? "vertical_smart" : editor.aspect,
         title_overlay: editor.titleOverlay,
         captions: captionsOn,
+        watermark: editor.watermark.trim() || null,
       });
       setVideo((v) => (v ? { ...v, clips: [clip, ...(v.clips ?? [])] } : v));
       document.getElementById("exports-heading")?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -283,6 +369,36 @@ export default function ProjectPage() {
     } catch (e) {
       setActionError(e instanceof Error ? e.message : "Montage failed");
       return false;
+    }
+  };
+
+  const saveHighlight = async () => {
+    if (!video) return;
+    setActionError(null);
+    try {
+      const h = await api.createHighlight(video.id, {
+        start: editor.start,
+        end: editor.end,
+        title: editor.title.trim() || undefined,
+      });
+      const fresh = await api.video(video.id);
+      setVideo(fresh);
+      setSelectedId(h.id);
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : "Could not save the highlight");
+    }
+  };
+
+  const deleteHighlight = async () => {
+    if (!video || !selected) return;
+    if (!confirm(`Remove "${selected.title}" from the highlights?`)) return;
+    setActionError(null);
+    try {
+      await api.deleteHighlight(selected.id);
+      setSelectedId(null);
+      setVideo(await api.video(video.id));
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : "Could not remove the highlight");
     }
   };
 
@@ -419,6 +535,11 @@ export default function ProjectPage() {
                 <span className="ml-auto font-mono text-sm text-muted">
                   {formatTime(currentTime, true)} / {formatTime(video.duration)}
                 </span>
+                <p className="hidden w-full text-[11px] text-dim md:block">
+                  <Kbd>Space</Kbd> play · <Kbd>I</Kbd>/<Kbd>O</Kbd> set start/end · <Kbd>←</Kbd>
+                  <Kbd>→</Kbd> 5s (<Kbd>Shift</Kbd> 1s) · <Kbd>J</Kbd>/<Kbd>L</Kbd> 10s · <Kbd>[</Kbd>
+                  <Kbd>]</Kbd> prev/next highlight
+                </p>
               </div>
             </div>
 
@@ -460,6 +581,8 @@ export default function ProjectPage() {
               onClearFacecam={() => saveFacecam(null)}
               onChange={(patch) => setEditor((s) => ({ ...s, ...patch }))}
               onExport={exportClip}
+              onSaveHighlight={saveHighlight}
+              onDeleteHighlight={deleteHighlight}
             />
           </div>
 

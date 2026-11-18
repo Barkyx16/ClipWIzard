@@ -1,5 +1,18 @@
 import { useEffect, useState } from "react";
-import { Captions, Check, Copy, Crosshair, Loader2, Minus, Plus, ScanFace, Scissors, X } from "lucide-react";
+import {
+  BookmarkPlus,
+  Captions,
+  Check,
+  Copy,
+  Crosshair,
+  Loader2,
+  Minus,
+  Plus,
+  ScanFace,
+  Scissors,
+  Trash2,
+  X,
+} from "lucide-react";
 
 import { Aspect, Highlight } from "../api";
 import { formatTime, parseTime } from "../lib/format";
@@ -12,6 +25,7 @@ export interface EditorState {
   titleOverlay: boolean;
   title: string;
   captions: boolean;
+  watermark: string;
 }
 
 const ASPECTS: { value: Aspect; label: string; hint: string; w: number; h: number; tip: string }[] = [
@@ -162,6 +176,8 @@ interface Props {
   exporting: boolean;
   onChange: (patch: Partial<EditorState>) => void;
   onExport: () => void;
+  onSaveHighlight: () => void;
+  onDeleteHighlight: () => void;
 }
 
 export default function ClipEditor({
@@ -177,10 +193,14 @@ export default function ClipEditor({
   onClearFacecam,
   onChange,
   onExport,
+  onSaveHighlight,
+  onDeleteHighlight,
 }: Props) {
   const clamp = (t: number) => Math.min(Math.max(0, t), duration);
   const length = state.end - state.start;
   const invalid = length < 1 || length > 180;
+  const edited =
+    !highlight || Math.abs(highlight.start - state.start) > 0.05 || Math.abs(highlight.end - state.end) > 0.05;
   const social = highlight
     ? [highlight.caption, highlight.hashtags.map((t) => `#${t}`).join(" ")].filter(Boolean).join("\n\n")
     : "";
@@ -195,6 +215,27 @@ export default function ClipEditor({
       </div>
 
       {highlight?.description && <p className="text-sm text-muted">{highlight.description}</p>}
+
+      <div className="-mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs">
+        {edited && !invalid && (
+          <button
+            type="button"
+            className="inline-flex items-center gap-1 text-accent hover:underline"
+            onClick={onSaveHighlight}
+          >
+            <BookmarkPlus className="h-3.5 w-3.5" /> Save range as a highlight
+          </button>
+        )}
+        {highlight && (
+          <button
+            type="button"
+            className="inline-flex items-center gap-1 text-muted hover:text-bad"
+            onClick={onDeleteHighlight}
+          >
+            <Trash2 className="h-3.5 w-3.5" /> Remove this highlight
+          </button>
+        )}
+      </div>
 
       {highlight && (
         <div className="space-y-1.5 rounded-xl border border-line bg-surface-2/60 p-3">
@@ -336,6 +377,17 @@ export default function ClipEditor({
           aria-label="Clip title"
         />
       </div>
+
+      <label className="block">
+        <span className="label">Your handle</span>
+        <input
+          className="input mt-1.5"
+          value={state.watermark}
+          maxLength={40}
+          placeholder="@yourchannel (optional watermark)"
+          onChange={(e) => onChange({ watermark: e.target.value })}
+        />
+      </label>
 
       {social && (
         <div className="rounded-xl border border-line bg-surface-2/60 p-3">

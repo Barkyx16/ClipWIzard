@@ -41,6 +41,8 @@ class RenderOptions:
     facecam: dict[str, float] | None = None
     # Burned-in captions (an ASS subtitle file written by media.captions)
     captions_ass: Path | None = None
+    # Channel handle shown in a corner, e.g. "@clipking"
+    watermark: str | None = None
 
 
 def _escape_filter_path(p: Path | str) -> str:
@@ -152,6 +154,24 @@ def output_size(aspect: str, src_w: int, src_h: int) -> tuple[int, int]:
     return ASPECTS.get(aspect, ASPECTS["vertical_blur"])
 
 
+def _watermark_filter(text: str, out_w: int, out_h: int, work: Path, font: str | None) -> str:
+    tf = work / "watermark.txt"
+    tf.write_text(strip_unrenderable(text)[:40], encoding="utf-8")
+    size = int(min(out_w, out_h) * 0.038)
+    parts = [
+        f"textfile='{_escape_filter_path(tf)}'",
+        f"fontsize={size}",
+        "fontcolor=white@0.85",
+        "borderw=2",
+        "bordercolor=black@0.6",
+        f"x=w-text_w-{int(out_w * 0.04)}",
+        f"y=h-text_h-{int(out_h * (0.12 if out_h > out_w else 0.05))}",
+    ]
+    if font:
+        parts.insert(1, f"fontfile='{_escape_filter_path(font)}'")
+    return "drawtext=" + ":".join(parts)
+
+
 def build_command(src: Path, out: Path, start: float, end: float, src_w: int, src_h: int,
                   has_audio: bool, opts: RenderOptions, work: Path,
                   font: str | None) -> list[str]:
@@ -196,6 +216,8 @@ def build_command(src: Path, out: Path, start: float, end: float, src_w: int, sr
     titles = _title_filters(opts.title, out_w, out_h, work, font, layout,
                             seam=seam if layout == "facecam" else None) if opts.title else []
     overlays = list(titles)
+    if opts.watermark:
+        overlays.append(_watermark_filter(opts.watermark, out_w, out_h, work, font))
     if opts.captions_ass is not None:
         overlays.append(f"subtitles=filename='{_escape_filter_path(opts.captions_ass)}'")
     if overlays:

@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, model_validator
 
-from . import db, jobs, pipeline
+from . import db, jobs, pipeline, retention
 from .config import get_settings
 from .media import captions, ffmpeg, importer
 from .workspace import (
@@ -42,10 +42,12 @@ async def lifespan(_: FastAPI):
     ffmpeg.ensure_available()
     db.init_db()
     jobs.resume_interrupted()
+    retention.start()
     s = get_settings()
     log.info("ClipWizard ready. Data dir: %s. AI enrichment: %s (%s)",
              s.data_dir, "on" if s.ai_enabled else "off", s.claude_model)
     yield
+    retention.stop()
     jobs.shutdown()
 
 
@@ -83,6 +85,7 @@ class ClipCreate(BaseModel):
     title: str | None = Field(None, max_length=120)
     quality: Literal["high", "fast"] = "high"
     captions: bool = False
+    watermark: str | None = Field(None, max_length=40)
 
     @model_validator(mode="after")
     def _check_range(self) -> "ClipCreate":
@@ -99,6 +102,7 @@ class ExportAll(BaseModel):
     top: int = Field(5, ge=1, le=30)
     quality: Literal["high", "fast"] = "high"
     captions: bool = False
+    watermark: str | None = Field(None, max_length=40)
 
 
 class Rect(BaseModel):
@@ -134,6 +138,21 @@ class MontageCreate(BaseModel):
     title_overlay: bool = True
     captions: bool = False
     quality: Literal["high", "fast"] = "high"
+    watermark: str | None = Field(None, max_length=40)
+
+
+class HighlightCreate(BaseModel):
+    start: float = Field(ge=0)
+    end: float = Field(gt=0)
+    title: str | None = Field(None, max_length=120)
+
+    @model_validator(mode="after")
+    def _check_range(self) -> "HighlightCreate":
+        if self.end <= self.start + 1:
+            raise ValueError("A highlight must be at least 1 second long")
+        if self.end - self.start > MAX_CLIP_SECONDS:
+            raise ValueError(f"Highlights can be at most {MAX_CLIP_SECONDS} seconds long")
+        return self
 
 
 class HighlightPatch(BaseModel):
@@ -258,6 +277,7 @@ def health() -> dict[str, Any]:
         "max_upload_mb": s.max_upload_mb,
         "captions_available": captions.available(),
         "import_sites": list(dict.fromkeys(importer.PLATFORMS.values())),
+        "retention_days": retention.retention_days(),
         "allowed_extensions": sorted(ALLOWED_EXTENSIONS),
     }
 
@@ -415,6 +435,50 @@ def patch_highlight(highlight_id: str, body: HighlightPatch, ws: str = Workspace
     return highlight_out(db.get_highlight(highlight_id))  # type: ignore[arg-type]
 
 
+@app.post("/api/videos/{video_id}/highlights", status_code=201)
+def create_highlight(video_id: str, body: HighlightCreate, ws: str = Workspace) -> dict[str, Any]:
+    """Save a hand-picked range as a highlight."""
+    v = _video_or_404(video_id, ws)
+    if v["status"] != "ready":
+        raise HTTPException(409, "Video analysis has not finished yet")
+    duration = float(v["duration"] or 0)
+    start, end = min(body.start, max(0.0, duration - 1)), min(body.end, duration)
+    if end <= start + 1:
+        raise HTTPException(422, "Highlight range is outside the video")
+    score = 50.0
+    t = db.get_timeline(video_id)
+    if t and t["data"].get("excitement"):
+        exc, hop = t["data"]["excitement"], float(t["hop"])
+        window = exc[int(start / hop): max(int(start / hop) + 1, int(end / hop))]
+        if window:
+            score = round(100 * max(window), 1)
+    hid = db.new_id()
+    peak = round((start + end) / 2, 2)
+    thumb: str | None = f"{video_id}_{hid}.jpg"
+    try:
+        ffmpeg.extract_frame(get_settings().uploads_dir / v["filename"], peak,
+                             get_settings().thumbs_dir / thumb, width=480)  # type: ignore[operator]
+    except ffmpeg.FFmpegError:
+        thumb = None
+    rank = len(db.list_highlights(video_id))
+    db.insert_highlight(video_id, {
+        "id": hid, "rank": rank, "start": round(start, 2), "end": round(end, 2), "peak": peak,
+        "score": score, "category": "Custom",
+        "title": (body.title or "").strip() or f"My clip at {int(start // 60)}:{int(start % 60):02d}",
+        "description": None, "caption": None, "hashtags": ["gta6", "gtavi", "gaming", "gta", "clips"],
+        "signals": {}, "thumbnail": thumb, "ai_enriched": False,
+    })
+    return highlight_out(db.get_highlight(hid))  # type: ignore[arg-type]
+
+
+@app.delete("/api/highlights/{highlight_id}", status_code=204)
+def delete_highlight(highlight_id: str, ws: str = Workspace) -> None:
+    h = _highlight_or_404(highlight_id, ws)
+    if h.get("thumbnail"):
+        (get_settings().thumbs_dir / h["thumbnail"]).unlink(missing_ok=True)
+    db.delete_highlight(highlight_id)
+
+
 def _queue_clip(v: dict[str, Any], body: ClipCreate) -> dict[str, Any]:
     if v["status"] != "ready" and body.highlight_id:
         raise HTTPException(409, "Video analysis has not finished yet")
@@ -427,7 +491,9 @@ def _queue_clip(v: dict[str, Any], body: ClipCreate) -> dict[str, Any]:
         h = db.get_highlight(body.highlight_id)
         if h is None or h["video_id"] != v["id"]:
             raise HTTPException(404, "Highlight not found for this video")
-    options = body.model_dump(include={"aspect", "crop_x", "title_overlay", "title", "quality", "captions"})
+    options = body.model_dump(
+        include={"aspect", "crop_x", "title_overlay", "title", "quality", "captions", "watermark"}
+    )
     if body.aspect == "vertical_facecam":
         facecam = (v.get("layout") or {}).get("facecam")
         if not facecam:
@@ -454,7 +520,7 @@ def export_all(video_id: str, body: ExportAll, ws: str = Workspace) -> list[dict
         out.append(_queue_clip(v, ClipCreate(
             highlight_id=h["id"], start=h["start"], end=h["end"], aspect=body.aspect,
             title_overlay=body.title_overlay, title=h["title"], quality=body.quality,
-            captions=body.captions,
+            captions=body.captions, watermark=body.watermark,
         )))
     return out
 
@@ -494,6 +560,7 @@ def create_montage(video_id: str, body: MontageCreate, ws: str = Workspace) -> d
         "title": f"Top {len(picked)} moments",
         "captions": body.captions,
         "quality": body.quality,
+        "watermark": body.watermark,
     }
     if body.aspect == "vertical_facecam":
         facecam = (v.get("layout") or {}).get("facecam")
