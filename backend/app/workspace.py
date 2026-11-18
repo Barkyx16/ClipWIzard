@@ -23,6 +23,8 @@ from starlette.responses import Response
 COOKIE = "cw_ws"
 MAX_AGE = 60 * 60 * 24 * 400  # ~13 months, the browser maximum
 KEY_RE = re.compile(r"^[A-Za-z0-9_-]{32,64}$")
+# Public endpoints that never need a workspace (and so never mint one).
+WORKSPACE_FREE = {"/api/health"}
 
 
 def new_key() -> str:
@@ -44,11 +46,19 @@ def set_cookie(request: Request, response: Response, key: str) -> None:
 
 
 class WorkspaceMiddleware(BaseHTTPMiddleware):
-    """Ensures every API/media request has a workspace, minting one if needed."""
+    """Ensures every API/media request has a workspace, minting one if needed.
+
+    The cookie is also set on the HTML page load itself, so a first-time
+    visitor already has it before the app fires several API calls at once
+    (otherwise each parallel call would mint a different workspace and the
+    last response would win).
+    """
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         path = request.url.path
-        if not (path.startswith("/api/") or path.startswith("/media/")):
+        page_load = request.method == "GET" and "text/html" in request.headers.get("accept", "")
+        scoped = path.startswith("/api/") or path.startswith("/media/")
+        if path in WORKSPACE_FREE or path.startswith("/api/share/") or not (scoped or page_load):
             return await call_next(request)
         key = request.cookies.get(COOKIE)
         minted = None

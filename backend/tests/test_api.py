@@ -538,3 +538,16 @@ def test_timeline_hover_sprites(client, demo_video):
         assert stranger.get(sp["sheets"][0]).status_code == 404
     client.delete(f"/api/videos/{vid}")
     assert client.get(sp["sheets"][0]).status_code == 404
+
+
+def test_workspace_cookie_minted_on_page_load_not_health():
+    from app.main import app
+
+    with TestClient(app) as fresh:
+        assert "cw_ws" not in fresh.get("/api/health").headers.get("set-cookie", "")
+        page = fresh.get("/videos/abc", headers={"accept": "text/html,application/xhtml+xml"})
+        assert "cw_ws=" in page.headers.get("set-cookie", "")
+        # Later API calls reuse that workspace instead of minting new ones.
+        assert "set-cookie" not in fresh.get("/api/videos").headers
+        key = fresh.get("/api/workspace").json()["key"]
+        assert fresh.cookies.get("cw_ws") == key

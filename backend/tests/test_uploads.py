@@ -104,3 +104,35 @@ def test_non_video_upload_is_rejected_on_complete(client):
     assert _put(client, uid, data, 0).status_code == 200
     r = client.post(f"/api/uploads/{uid}/complete")
     assert r.status_code == 400
+
+
+def test_auto_export_after_analysis(client, demo_video):
+    data = demo_video.read_bytes()
+    up = _start(client, data, fp="auto-export", auto_export={
+        "top": 2, "aspect": "vertical_facecam", "captions": False, "watermark": "@me"}).json()
+    assert _put(client, up["id"], data, 0).status_code == 200
+    vid = client.post(f"/api/uploads/{up['id']}/complete").json()["id"]
+
+    deadline = time.time() + 120
+    clips = []
+    while time.time() < deadline:
+        v = client.get(f"/api/videos/{vid}").json()
+        clips = v["clips"]
+        if v["status"] == "ready" and len(clips) == 2 and all(c["status"] == "done" for c in clips):
+            break
+        time.sleep(0.5)
+    assert v["status"] == "ready", v["error"]
+    assert len(clips) == 2 and all(c["status"] == "done" for c in clips), clips
+    top_two = {h["id"] for h in v["highlights"][:2]}
+    assert {c["highlight_id"] for c in clips} == top_two
+    for c in clips:
+        assert c["options"]["aspect"] == "vertical_smart"  # facecam needs a marked box
+        assert c["options"]["watermark"] == "@me" and c["options"]["auto"] is True
+
+    # A re-scan doesn't export again.
+    r = client.post(f"/api/videos/{vid}/reanalyze", json={"max_clips": 2})
+    assert r.status_code == 200 and r.json()["settings"]["auto_export"] is None
+    while client.get(f"/api/videos/{vid}").json()["status"] != "ready":
+        time.sleep(0.3)
+    assert len(client.get(f"/api/videos/{vid}/clips").json()) == 2
+    client.delete(f"/api/videos/{vid}")

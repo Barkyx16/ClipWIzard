@@ -167,11 +167,42 @@ def analyze_video(video_id: str) -> None:
             ai_used=bool(ai_results),
             thumbnail=rows[0]["thumbnail"] if rows else video.get("thumbnail"),
         )
+        if opts_raw.get("auto_export"):
+            _auto_export(video_id, rows, opts_raw["auto_export"])
     except Exception as e:  # report any failure to the UI
         log.exception("Analysis failed for %s", video_id)
         db.update_video(video_id, status="failed", stage="Failed", error=str(e)[:800])
     finally:
         shutil.rmtree(work, ignore_errors=True)
+
+
+def _auto_export(video_id: str, highlights: list[dict[str, Any]], spec: dict[str, Any]) -> None:
+    """Queue renders of the best highlights with the format chosen at upload time."""
+    from . import jobs  # jobs imports pipeline lazily; avoid a cycle at import time
+
+    aspect = spec.get("aspect") or "vertical_blur"
+    if aspect == "vertical_facecam":  # no facecam box on a fresh upload yet
+        aspect = "vertical_smart"
+    count = 0
+    for h in highlights:
+        if count >= int(spec.get("top") or 5):
+            break
+        if not (0.5 < h["end"] - h["start"] <= 180):
+            continue
+        options = {
+            "aspect": aspect, "crop_x": 0.5, "quality": "high",
+            "title_overlay": bool(spec.get("title_overlay", True)), "title": h["title"],
+            "captions": bool(spec.get("captions")), "caption_style": spec.get("caption_style") or "bold",
+            "caption_position": float(spec.get("caption_position") or 0.72),
+            "watermark": spec.get("watermark") or None, "replay": bool(spec.get("replay")),
+            "normalize": bool(spec.get("normalize", True)), "auto": True,
+        }
+        clip = db.create_clip(video_id=video_id, highlight_id=h["id"], start=h["start"], end=h["end"],
+                              options=options)
+        jobs.submit(render, clip["id"])
+        count += 1
+    if count:
+        log.info("Auto-exporting %d clip(s) for %s", count, video_id)
 
 
 def import_video(video_id: str) -> None:

@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AudioWaveform, Crosshair, Scissors, Search, Wand2 } from "lucide-react";
 
 import { api, Health, isBusy, Video } from "../api";
 import UploadCard from "../components/UploadCard";
 import Faq from "../components/Faq";
+import { notify } from "../lib/notify";
 import VideoCard from "../components/VideoCard";
 import { usePolling } from "../lib/usePolling";
 
@@ -31,9 +32,17 @@ export default function HomePage() {
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
 
+  const busyIds = useRef<Set<string>>(new Set());
   const load = useCallback(async () => {
     try {
-      setVideos(await api.videos());
+      const list = await api.videos();
+      for (const v of list) {
+        if (busyIds.current.has(v.id) && v.status === "ready") {
+          notify("Highlights ready", `${v.name} is ready to clip`, `/videos/${v.id}`);
+        }
+      }
+      busyIds.current = new Set(list.filter(isBusy).map((v) => v.id));
+      setVideos(list);
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not reach the server");

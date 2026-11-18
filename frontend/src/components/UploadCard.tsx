@@ -1,9 +1,11 @@
 import { useCallback, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Bot, FileVideo, Files, Link2, Loader2, UploadCloud, X } from "lucide-react";
+import { Bot, FileVideo, Files, Link2, Loader2, UploadCloud, X, Zap } from "lucide-react";
 
 import { AnalyzeSettings, api, ApiError, ClipLength, Health, UploadHandle, uploadVideo } from "../api";
 import { formatBytes } from "../lib/format";
+import { askNotifyPermission } from "../lib/notify";
+import { DEFAULT_FORMAT, loadFormat, loadPref, savePref } from "../lib/prefs";
 import ProgressBar from "./ProgressBar";
 
 const LENGTHS: { value: ClipLength; label: string; hint: string }[] = [
@@ -42,7 +44,31 @@ export default function UploadCard({ health, onUploaded }: { health: Health | nu
     use_ai: true,
   });
 
+  const [autoTop, setAutoTop] = useState<number>(() => Number(loadPref("cw_auto_export", "0")) || 0);
   const aiAvailable = health?.ai_enabled ?? false;
+
+  /** Final settings for this upload, including the auto-export format saved in the editor. */
+  const uploadSettings = (): AnalyzeSettings => {
+    savePref("cw_auto_export", String(autoTop));
+    const f = { ...DEFAULT_FORMAT, ...loadFormat() };
+    return {
+      ...settings,
+      use_ai: settings.use_ai && aiAvailable,
+      auto_export: autoTop
+        ? {
+            top: autoTop,
+            aspect: f.aspect === "vertical_crop" ? "vertical_smart" : f.aspect,
+            title_overlay: f.titleOverlay,
+            captions: f.captions && Boolean(health?.captions_available),
+            caption_style: f.captionStyle,
+            caption_position: f.captionPosition,
+            watermark: f.watermark.trim() || null,
+            replay: f.replay,
+            normalize: f.normalize,
+          }
+        : null,
+    };
+  };
   const accept = (health?.allowed_extensions ?? [".mp4", ".mov", ".mkv", ".webm"]).join(",");
 
   const pick = useCallback(
@@ -74,22 +100,18 @@ export default function UploadCard({ health, onUploaded }: { health: Health | nu
     for (;;) {
       setProgress({ loaded: 0, total: file.size, started: performance.now(), base: null });
       setUploadStatus(null);
-      const handle = uploadVideo(
-        file,
-        { ...settings, use_ai: settings.use_ai && aiAvailable },
-        {
-          // `base` is where this attempt started, so resumed uploads report a real speed.
-          onProgress: (loaded, total) =>
-            setProgress((p) =>
-              p
-                ? p.base === null
-                  ? { ...p, loaded, total, base: loaded, started: performance.now() }
-                  : { ...p, loaded, total }
-                : p,
-            ),
-          onStatus: setUploadStatus,
-        },
-      );
+      const handle = uploadVideo(file, uploadSettings(), {
+        // `base` is where this attempt started, so resumed uploads report a real speed.
+        onProgress: (loaded, total) =>
+          setProgress((p) =>
+            p
+              ? p.base === null
+                ? { ...p, loaded, total, base: loaded, started: performance.now() }
+                : { ...p, loaded, total }
+              : p,
+          ),
+        onStatus: setUploadStatus,
+      });
       handleRef.current = handle;
       try {
         return await handle.promise;
@@ -110,6 +132,7 @@ export default function UploadCard({ health, onUploaded }: { health: Health | nu
 
   const start = async () => {
     if (!files.length) return;
+    askNotifyPermission();
     setError(null);
     setNotice(null);
     cancelled.current = false;
@@ -153,7 +176,8 @@ export default function UploadCard({ health, onUploaded }: { health: Health | nu
     setError(null);
     setImporting(true);
     try {
-      const video = await api.importLink(link.trim(), { ...settings, use_ai: settings.use_ai && aiAvailable });
+      askNotifyPermission();
+      const video = await api.importLink(link.trim(), uploadSettings());
       navigate(`/videos/${video.id}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Import failed");
@@ -343,8 +367,41 @@ export default function UploadCard({ health, onUploaded }: { health: Health | nu
         </div>
       </div>
 
+      <div className="mt-5 flex items-start gap-3 rounded-xl border border-line bg-surface-2 p-3">
+        <input
+          id="auto-export"
+          type="checkbox"
+          className="mt-1 h-4 w-4 accent-primary"
+          checked={autoTop > 0}
+          disabled={uploading}
+          onChange={(e) => setAutoTop(e.target.checked ? 5 : 0)}
+        />
+        <div className="text-sm">
+          <label htmlFor="auto-export" className="flex cursor-pointer items-center gap-1.5 font-semibold">
+            <Zap className="h-4 w-4 text-accent" /> Auto-export the best clips
+          </label>
+          <p className="text-muted">
+            When it's done, render the top{" "}
+            <select
+              className="rounded-md border border-line bg-bg px-1 py-0.5 text-ink"
+              value={autoTop || 5}
+              disabled={uploading}
+              aria-label="How many clips to auto-export"
+              onChange={(e) => setAutoTop(Number(e.target.value))}
+            >
+              {[1, 3, 5, 10].map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </select>{" "}
+            highlights in your last-used format, ready to download.
+          </p>
+        </div>
+      </div>
+
       <label
-        className={`mt-5 flex items-start gap-3 rounded-xl border border-line bg-surface-2 p-3 ${
+        className={`mt-3 flex items-start gap-3 rounded-xl border border-line bg-surface-2 p-3 ${
           aiAvailable ? "cursor-pointer" : "opacity-60"
         }`}
       >

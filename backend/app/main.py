@@ -92,11 +92,26 @@ class ApiModel(BaseModel):
     model_config = ConfigDict(allow_inf_nan=False)
 
 
+class AutoExport(ApiModel):
+    """Render the best highlights automatically as soon as analysis finishes."""
+
+    top: int = Field(5, ge=1, le=10)
+    aspect: Aspect = "vertical_blur"
+    title_overlay: bool = True
+    captions: bool = False
+    caption_style: CaptionStyle = "bold"
+    caption_position: float = Field(0.72, ge=0.3, le=0.92)
+    watermark: str | None = Field(None, max_length=40)
+    replay: bool = False
+    normalize: bool = True
+
+
 class AnalyzeSettings(ApiModel):
     length: Literal["short", "medium", "long"] = "short"
     max_clips: int = Field(12, ge=1, le=30)
     sensitivity: float = Field(0.5, ge=0.0, le=1.0)
     use_ai: bool = True
+    auto_export: AutoExport | None = None
 
 
 class CaptionWord(ApiModel):
@@ -623,7 +638,7 @@ def reanalyze(video_id: str, body: AnalyzeSettings, ws: str = Workspace) -> dict
     if not (get_settings().uploads_dir / v["filename"]).exists():
         raise HTTPException(409, "The video file is missing, so it can't be re-scanned")
     _check_video_limits(ws)
-    db.update_video(video_id, settings=body.model_dump(), status="queued", stage="Queued",
+    db.update_video(video_id, settings={**body.model_dump(), "auto_export": None}, status="queued", stage="Queued",
                     progress=0.0, error=None)
     jobs.submit(pipeline.analyze_video, video_id)
     return video_out(db.get_video(video_id), include_children=True)  # type: ignore[arg-type]

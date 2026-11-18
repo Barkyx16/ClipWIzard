@@ -10,11 +10,24 @@ export interface Rect {
 }
 export type ClipLength = "short" | "medium" | "long";
 
+export interface AutoExport {
+  top: number;
+  aspect: Aspect;
+  title_overlay: boolean;
+  captions: boolean;
+  caption_style: string;
+  caption_position: number;
+  watermark: string | null;
+  replay: boolean;
+  normalize: boolean;
+}
+
 export interface AnalyzeSettings {
   length: ClipLength;
   max_clips: number;
   sensitivity: number;
   use_ai: boolean;
+  auto_export?: AutoExport | null;
 }
 
 export interface HighlightSignals {
