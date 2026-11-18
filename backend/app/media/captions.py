@@ -64,6 +64,11 @@ def _get_model():
 
 def transcribe(src: Path, start: float, end: float, work: Path) -> list[Word]:
     """Words spoken in [start, end], with times relative to the clip start."""
+    if os.environ.get("CLIPWIZARD_FAKE_TRANSCRIBE") == "1":  # dev/e2e only: no model download
+        text = "no way bro he actually made it out of there"
+        step = max(0.2, (end - start) / 12)
+        return [Word(i * step, i * step + step * 0.8, w) for i, w in enumerate(text.split())
+                if i * step < end - start]
     if not available():
         raise CaptionError("Auto captions need the faster-whisper package")
     work.mkdir(parents=True, exist_ok=True)

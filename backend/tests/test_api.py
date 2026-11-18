@@ -424,3 +424,41 @@ def test_rename_session(client, demo_video):
     assert client.patch(f"/api/videos/{vid}", json={"name": "   "}).status_code == 422
     _wait(client, f"/api/videos/{vid}")
     client.delete(f"/api/videos/{vid}")
+
+
+def test_transcript_review_and_edited_captions(client, demo_video, monkeypatch):
+    from app.main import app
+    from app.media import captions
+
+    calls = []
+
+    def fake(src, start, end, work):
+        calls.append((start, end))
+        return [captions.Word(0.1, 0.4, "no"), captions.Word(0.5, 0.9, "whey")]
+
+    monkeypatch.setattr(captions, "transcribe", fake)
+    vid = _upload(client, demo_video, max_clips=1).json()["id"]
+    _wait(client, f"/api/videos/{vid}")
+    assert client.post(f"/api/videos/{vid}/transcripts", json={"start": 5, "end": 5.2}).status_code == 422
+
+    t = client.post(f"/api/videos/{vid}/transcripts", json={"start": 20, "end": 24}).json()
+    deadline = time.time() + 20
+    while t["status"] not in ("done", "failed") and time.time() < deadline:
+        time.sleep(0.2)
+        t = client.get(f"/api/transcripts/{t['id']}").json()
+    assert t["status"] == "done", t["error"]
+    assert [w["text"] for w in t["words"]] == ["no", "whey"]
+
+    with TestClient(app) as stranger:
+        assert stranger.get(f"/api/transcripts/{t['id']}").status_code == 404
+
+    # Export with the user's fix: no second transcription happens.
+    calls.clear()
+    edited = [{"start": 0.1, "end": 0.4, "text": "no"}, {"start": 0.5, "end": 0.9, "text": "way"}]
+    r = client.post(f"/api/videos/{vid}/clips", json={
+        "start": 20, "end": 24, "captions": True, "caption_words": edited, "quality": "fast"})
+    clip = _wait(client, f"/api/clips/{r.json()['id']}")
+    assert clip["status"] == "done", clip["error"]
+    assert clip["transcript"] == "no way"
+    assert calls == []
+    client.delete(f"/api/videos/{vid}")

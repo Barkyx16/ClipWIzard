@@ -93,9 +93,21 @@ CREATE TABLE IF NOT EXISTS uploads (
     updated_at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_uploads_fp ON uploads(workspace, fingerprint);
+
+CREATE TABLE IF NOT EXISTS transcripts (
+    id TEXT PRIMARY KEY,
+    video_id TEXT NOT NULL REFERENCES videos(id) ON DELETE CASCADE,
+    start REAL NOT NULL,
+    end REAL NOT NULL,
+    status TEXT NOT NULL,
+    words TEXT NOT NULL DEFAULT '[]',
+    error TEXT,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
 """
 
-_JSON_FIELDS = {"settings", "hashtags", "signals", "options", "data", "layout"}
+_JSON_FIELDS = {"settings", "hashtags", "signals", "options", "data", "layout", "words"}
 _BOOL_FIELDS = {"has_audio", "ai_used", "ai_enriched"}
 
 
@@ -339,6 +351,25 @@ def queue_ahead(video: dict[str, Any]) -> int:
         return conn.execute(
             "SELECT COUNT(*) FROM videos WHERE status = 'queued' AND created_at < ?", (video["created_at"],)
         ).fetchone()[0]
+
+
+def create_transcript(**fields: Any) -> dict[str, Any]:
+    now = time.time()
+    fields.setdefault("id", new_id())
+    fields.setdefault("status", "queued")
+    fields.update(created_at=now, updated_at=now)
+    _insert("transcripts", fields)
+    return get_transcript(fields["id"])  # type: ignore[return-value]
+
+
+def get_transcript(transcript_id: str) -> dict[str, Any] | None:
+    with connect() as conn:
+        return _row(conn.execute("SELECT * FROM transcripts WHERE id = ?", (transcript_id,)).fetchone())
+
+
+def update_transcript(transcript_id: str, **fields: Any) -> None:
+    fields["updated_at"] = time.time()
+    _update("transcripts", transcript_id, fields)
 
 
 def workspace_usage(workspace: str) -> dict[str, int]:

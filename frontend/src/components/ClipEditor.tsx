@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { ReactNode, useEffect, useState } from "react";
 import {
   BookmarkPlus,
   Captions,
@@ -178,6 +178,7 @@ function CopyButton({ text }: { text: string }) {
 }
 
 interface Props {
+  captionReview: ReactNode;
   captionsAvailable: boolean;
   hasFacecam: boolean;
   drawingFacecam: boolean;
@@ -201,6 +202,7 @@ export default function ClipEditor({
   currentTime,
   exporting,
   captionsAvailable,
+  captionReview,
   hasFacecam,
   drawingFacecam,
   onMarkFacecam,
@@ -374,6 +376,7 @@ export default function ClipEditor({
 
       {state.captions && captionsAvailable && (
         <div className="-mt-2 space-y-3 rounded-xl border border-line bg-surface-2/60 p-3">
+          {captionReview}
           <div className="grid grid-cols-3 gap-1.5" role="radiogroup" aria-label="Caption style">
             {CAPTION_STYLES.map((c) => (
               <button

@@ -3,7 +3,9 @@ import { Link, useParams } from "react-router-dom";
 import { AlertTriangle, ArrowLeft, Bot, FolderDown, Loader2, Play, RefreshCw, Repeat } from "lucide-react";
 
 import { api, AnalyzeSettings, Clip, Health, Highlight, isBusy, Rect, Timeline as TimelineData, Video } from "../api";
+import CaptionReview, { CaptionReviewState } from "../components/CaptionReview";
 import ClipEditor, { CaptionStyle, EditorState } from "../components/ClipEditor";
+import { groupPhrases, phrasesToWords } from "../lib/captions";
 import EditableTitle from "../components/EditableTitle";
 import ExportCard from "../components/ExportCard";
 import PlayerStage from "../components/PlayerStage";
@@ -177,6 +179,7 @@ export default function ProjectPage() {
   const [exporting, setExporting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [drawingFacecam, setDrawingFacecam] = useState(false);
+  const [captionReview, setCaptionReview] = useState<CaptionReviewState | null>(null);
   const [editor, setEditor] = useState<EditorState>({
     start: 0,
     end: 15,
@@ -368,6 +371,7 @@ export default function ProjectPage() {
         title_overlay: editor.titleOverlay && editor.title.trim() !== "",
         title: editor.title.trim() || null,
         captions: captionsOn,
+        caption_words: captionsOn ? reviewedWords : undefined,
         watermark: editor.watermark.trim() || null,
         caption_style: editor.captionStyle,
         caption_position: editor.captionPosition,
@@ -432,6 +436,40 @@ export default function ProjectPage() {
       return false;
     }
   };
+
+  const reviewStale =
+    captionReview !== null &&
+    (Math.abs(captionReview.start - editor.start) > 0.05 || Math.abs(captionReview.end - editor.end) > 0.05);
+
+  const startCaptionReview = async () => {
+    if (!video) return;
+    const range = { start: editor.start, end: editor.end };
+    setCaptionReview({ ...range, status: "running", error: null, phrases: [] });
+    try {
+      let t = await api.createTranscript(video.id, range);
+      while (t.status === "queued" || t.status === "running") {
+        await new Promise((r) => setTimeout(r, 1000));
+        t = await api.transcript(t.id);
+      }
+      setCaptionReview((cur) =>
+        cur && cur.start === range.start && cur.end === range.end
+          ? {
+              ...range,
+              status: t.status === "done" ? "done" : "failed",
+              error: t.error,
+              phrases: groupPhrases(t.words),
+            }
+          : cur,
+      );
+    } catch (e) {
+      setCaptionReview({ ...range, status: "failed", error: e instanceof Error ? e.message : "Failed", phrases: [] });
+    }
+  };
+
+  const reviewedWords =
+    captionReview && !reviewStale && captionReview.status === "done" && captionReview.phrases.length
+      ? phrasesToWords(captionReview.phrases)
+      : undefined;
 
   const saveHighlight = async () => {
     if (!video) return;
@@ -639,6 +677,23 @@ export default function ProjectPage() {
               currentTime={currentTime}
               exporting={exporting}
               captionsAvailable={Boolean(health?.captions_available)}
+              captionReview={
+                <CaptionReview
+                  review={captionReview}
+                  stale={reviewStale}
+                  onStart={startCaptionReview}
+                  onEdit={(i, text) =>
+                    setCaptionReview((r) =>
+                      r ? { ...r, phrases: r.phrases.map((p, j) => (j === i ? { ...p, text } : p)) } : r,
+                    )
+                  }
+                  onReset={() =>
+                    setCaptionReview((r) =>
+                      r ? { ...r, phrases: r.phrases.map((p) => ({ ...p, text: p.original })) } : r,
+                    )
+                  }
+                />
+              }
               hasFacecam={Boolean(video.layout?.facecam)}
               drawingFacecam={drawingFacecam}
               onMarkFacecam={() => {

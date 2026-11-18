@@ -255,11 +255,18 @@ def _render_options(video: dict[str, Any], o: dict[str, Any], start: float, end:
 
 def _add_captions(src: Path, video: dict[str, Any], opts: RenderOptions, o: dict[str, Any],
                   start: float, end: float, work: Path, tag: str) -> tuple[str | None, str | None]:
-    """Transcribe [start, end] and attach burned-in captions. Returns (transcript, warning)."""
-    try:
-        words = captions.transcribe(src, start, end, work)
-    except captions.CaptionError as e:
-        return None, f"Captions skipped: {e}"[:300]
+    """Transcribe [start, end] (or use the user's edited words) and attach burned-in captions.
+
+    Returns (transcript, warning).
+    """
+    edited = o.get("caption_words") if tag == "main" else None
+    if edited:
+        words = [captions.Word(float(w["start"]), float(w["end"]), str(w["text"])) for w in edited]
+    else:
+        try:
+            words = captions.transcribe(src, start, end, work)
+        except captions.CaptionError as e:
+            return None, f"Captions skipped: {e}"[:300]
     if not words:
         return None, "No speech found for captions"
     out_w, out_h = output_size(opts.aspect, int(video["width"]), int(video["height"]))
@@ -323,6 +330,32 @@ def render(clip_id: str) -> None:
     except Exception as e:
         log.exception("Render failed for clip %s", clip_id)
         db.update_clip(clip_id, status="failed", error=str(e)[:800])
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
+def transcribe_range(transcript_id: str) -> None:
+    """Background job: transcribe a range so the user can review/edit captions."""
+    settings = get_settings()
+    t = db.get_transcript(transcript_id)
+    if t is None:
+        return
+    video = db.get_video(t["video_id"])
+    if video is None:
+        return
+    work = settings.work_dir / f"tr_{transcript_id}"
+    db.update_transcript(transcript_id, status="running", error=None)
+    try:
+        words = captions.transcribe(settings.uploads_dir / video["filename"], float(t["start"]),
+                                    float(t["end"]), work)
+        db.update_transcript(transcript_id, status="done",
+                             words=[{"start": round(w.start, 3), "end": round(w.end, 3), "text": w.text}
+                                    for w in words])
+    except captions.CaptionError as e:
+        db.update_transcript(transcript_id, status="failed", error=str(e)[:300])
+    except Exception as e:
+        log.exception("Transcription failed for %s", transcript_id)
+        db.update_transcript(transcript_id, status="failed", error=f"Transcription failed: {e}"[:300])
     finally:
         shutil.rmtree(work, ignore_errors=True)
 

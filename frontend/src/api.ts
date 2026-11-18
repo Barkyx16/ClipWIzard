@@ -58,6 +58,7 @@ export interface ClipOptions {
   watermark?: string | null;
   replay?: boolean;
   normalize?: boolean;
+  caption_words?: { start: number; end: number; text: string }[];
   kind?: "montage";
   segments?: { highlight_id: string; start: number; end: number; title: string }[];
   transition?: string;
@@ -80,6 +81,16 @@ export interface Clip {
   url: string | null;
   download_url: string | null;
   share_url: string | null;
+}
+
+export interface Transcript {
+  id: string;
+  video_id: string;
+  start: number;
+  end: number;
+  status: "queued" | "running" | "done" | "failed";
+  words: { start: number; end: number; text: string }[];
+  error: string | null;
 }
 
 export interface SharedClip {
@@ -199,6 +210,9 @@ export const api = {
       normalize?: boolean;
     },
   ) => request<Clip[]>(`/api/videos/${videoId}/export-all`, { method: "POST", body: JSON.stringify(body) }),
+  createTranscript: (videoId: string, range: { start: number; end: number }) =>
+    request<Transcript>(`/api/videos/${videoId}/transcripts`, { method: "POST", body: JSON.stringify(range) }),
+  transcript: (id: string) => request<Transcript>(`/api/transcripts/${id}`),
   createHighlight: (videoId: string, body: { start: number; end: number; title?: string }) =>
     request<Highlight>(`/api/videos/${videoId}/highlights`, { method: "POST", body: JSON.stringify(body) }),
   deleteHighlight: (id: string) => request<void>(`/api/highlights/${id}`, { method: "DELETE" }),

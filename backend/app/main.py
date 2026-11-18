@@ -80,6 +80,23 @@ class AnalyzeSettings(BaseModel):
     use_ai: bool = True
 
 
+class CaptionWord(BaseModel):
+    start: float = Field(ge=0)
+    end: float = Field(ge=0)
+    text: str = Field(min_length=1, max_length=40)
+
+
+class TranscriptCreate(BaseModel):
+    start: float = Field(ge=0)
+    end: float = Field(gt=0)
+
+    @model_validator(mode="after")
+    def _check_range(self) -> "TranscriptCreate":
+        if not (0.5 < self.end - self.start <= MAX_CLIP_SECONDS):
+            raise ValueError(f"Pick a range between 0.5 and {MAX_CLIP_SECONDS} seconds")
+        return self
+
+
 class ClipCreate(BaseModel):
     highlight_id: str | None = None
     start: float = Field(ge=0)
@@ -95,6 +112,8 @@ class ClipCreate(BaseModel):
     watermark: str | None = Field(None, max_length=40)
     replay: bool = False
     normalize: bool = True
+    # Captions the user reviewed/edited (times relative to the clip start).
+    caption_words: list[CaptionWord] | None = Field(None, max_length=3000)
 
     @model_validator(mode="after")
     def _check_range(self) -> "ClipCreate":
@@ -675,8 +694,10 @@ def _queue_clip(v: dict[str, Any], body: ClipCreate) -> dict[str, Any]:
             raise HTTPException(404, "Highlight not found for this video")
     options = body.model_dump(
         include={"aspect", "crop_x", "title_overlay", "title", "quality", "captions", "caption_style",
-                 "caption_position", "watermark", "replay", "normalize"}
+                 "caption_position", "watermark", "replay", "normalize", "caption_words"}
     )
+    if not options.get("caption_words"):
+        options.pop("caption_words", None)
     if body.aspect == "vertical_facecam":
         facecam = (v.get("layout") or {}).get("facecam")
         if not facecam:
@@ -763,6 +784,34 @@ def create_montage(video_id: str, body: MontageCreate, ws: str = Workspace) -> d
                        options=options)
     jobs.submit(pipeline.render, c["id"])
     return clip_out(c)
+
+
+def transcript_out(t: dict[str, Any]) -> dict[str, Any]:
+    return {"id": t["id"], "video_id": t["video_id"], "start": t["start"], "end": t["end"],
+            "status": t["status"], "words": t["words"], "error": t["error"]}
+
+
+@app.post("/api/videos/{video_id}/transcripts", status_code=201)
+def create_transcript(video_id: str, body: TranscriptCreate, ws: str = Workspace) -> dict[str, Any]:
+    """Transcribe a range in the background so captions can be reviewed before export."""
+    v = _video_or_404(video_id, ws)
+    if v["status"] != "ready":
+        raise HTTPException(409, "Video analysis has not finished yet")
+    if not v["has_audio"]:
+        raise HTTPException(422, "This video has no audio to transcribe")
+    _check_render_limits(ws)
+    t = db.create_transcript(video_id=video_id, start=body.start, end=min(body.end, float(v["duration"])))
+    jobs.submit(pipeline.transcribe_range, t["id"])
+    return transcript_out(t)
+
+
+@app.get("/api/transcripts/{transcript_id}")
+def get_transcript(transcript_id: str, ws: str = Workspace) -> dict[str, Any]:
+    t = db.get_transcript(transcript_id)
+    if t is None:
+        raise HTTPException(404, "Transcript not found")
+    _video_or_404(t["video_id"], ws)
+    return transcript_out(t)
 
 
 @app.get("/api/videos/{video_id}/clips")
