@@ -16,7 +16,7 @@ from .analysis.highlights import DetectOptions, detect_highlights, timeline
 from .analysis.smartcrop import camera_path, keyframes
 from .analysis.signals import MotionAccumulator, build_signals
 from .config import get_settings
-from .media.ffmpeg import FFmpegError, decode_for_analysis, extract_frame
+from .media.ffmpeg import FFmpegError, SpriteSpec, decode_for_analysis, extract_frame
 from .media import captions, importer
 from .media.ffmpeg import probe
 from .media.render import RenderOptions, join_segments, output_size, render_clip
@@ -79,10 +79,13 @@ def analyze_video(video_id: str) -> None:
         duration = float(video["duration"])
         audio_path = work / "audio.s16le"
         acc = MotionAccumulator()
+        sprite_spec = SpriteSpec.for_duration(work / "sprite_%03d.jpg", duration)
         decode_for_analysis(
             src, audio_path, bool(video["has_audio"]), duration, acc.feed,
             progress=_Throttle(video_id, 0.0, 0.7, "Scanning gameplay for action"),
+            sprites=sprite_spec,
         )
+        sprite_meta = _publish_sprites(video_id, sprite_spec, duration)
 
         _Throttle(video_id, 0.7, 0.75, "Listening for gunfire and explosions")
         sig = build_signals(audio_path, acc, bool(video["has_audio"]))
@@ -98,6 +101,8 @@ def analyze_video(video_id: str) -> None:
             step = max(1, int(round(1.0 / sig.hop)))
             curves["crop_hop"] = sig.hop * step  # type: ignore[assignment]
             curves["crop_path"] = [round(float(v), 3) for v in path[::step]]
+        if sprite_meta:
+            curves["sprites"] = sprite_meta  # type: ignore[assignment]
         db.save_timeline(video_id, hop, curves)
 
         ai_results: dict[int, dict[str, Any]] = {}
@@ -430,6 +435,26 @@ def _render_montage(src: Path, out: Path, video: dict[str, Any], o: dict[str, An
     return ("\n\n".join(transcripts) or None), ("; ".join(sorted(warnings)) or None)
 
 
+def _publish_sprites(video_id: str, spec: SpriteSpec, duration: float) -> dict[str, Any] | None:
+    """Move contact sheets into the (workspace-protected) thumbs folder."""
+    thumbs = get_settings().thumbs_dir
+    for old in thumbs.glob(f"{video_id}_sprite_*.jpg"):
+        old.unlink(missing_ok=True)
+    sheets = sorted(spec.pattern.parent.glob("sprite_*.jpg"))
+    if not sheets:
+        return None
+    names = []
+    for i, sheet in enumerate(sheets):
+        name = f"{video_id}_sprite_{i:03d}.jpg"
+        shutil.move(str(sheet), str(thumbs / name))
+        names.append(name)
+    return {
+        "interval": spec.interval, "w": spec.w, "h": spec.h, "cols": spec.cols, "rows": spec.rows,
+        "count": min(len(names) * spec.cols * spec.rows, int(duration // spec.interval) + 1),
+        "sheets": [f"/media/thumbs/{n}" for n in names],
+    }
+
+
 def save_camera_path(video_id: str, path: np.ndarray, hop: float) -> None:
     np.savez_compressed(get_settings().analysis_dir / f"{video_id}.npz", path=path, hop=hop)
 
@@ -448,6 +473,8 @@ def remove_video_files(video: dict[str, Any]) -> None:
     for leftover in settings.uploads_dir.glob(f"{video['id']}.*"):  # partial imports
         leftover.unlink(missing_ok=True)
     (settings.analysis_dir / f"{video['id']}.npz").unlink(missing_ok=True)
+    for sheet in settings.thumbs_dir.glob(f"{video['id']}_sprite_*.jpg"):
+        sheet.unlink(missing_ok=True)
     for h in db.list_highlights(video["id"]):
         if h.get("thumbnail"):
             (settings.thumbs_dir / h["thumbnail"]).unlink(missing_ok=True)

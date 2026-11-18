@@ -1,4 +1,4 @@
-import { useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Highlight, Timeline as TimelineData } from "../api";
 import { formatTime } from "../lib/format";
@@ -27,6 +27,29 @@ export default function Timeline({
   onSelect,
 }: Props) {
   const ref = useRef<HTMLDivElement>(null);
+  const [hover, setHover] = useState<{ x: number; t: number } | null>(null);
+  const sprites = data?.sprites ?? null;
+
+  // Warm the cache so previews appear instantly.
+  useEffect(() => {
+    sprites?.sheets.forEach((src) => {
+      const img = new Image();
+      img.src = src;
+    });
+  }, [sprites]);
+
+  const preview = (() => {
+    if (!hover || !sprites || !sprites.count) return null;
+    const perSheet = sprites.cols * sprites.rows;
+    const index = Math.min(sprites.count - 1, Math.max(0, Math.floor(hover.t / sprites.interval)));
+    const sheet = sprites.sheets[Math.floor(index / perSheet)];
+    if (!sheet) return null;
+    const within = index % perSheet;
+    return {
+      src: sheet,
+      pos: `-${(within % sprites.cols) * sprites.w}px -${Math.floor(within / sprites.cols) * sprites.h}px`,
+    };
+  })();
 
   const path = useMemo(() => {
     const pts = data?.excitement ?? [];
@@ -53,11 +76,41 @@ export default function Timeline({
   }, [duration]);
 
   return (
-    <div>
+    <div className="relative">
+      {hover && (
+        <div
+          className="pointer-events-none absolute bottom-full z-20 mb-2 -translate-x-1/2 overflow-hidden rounded-lg border border-line bg-bg shadow-2xl"
+          style={{
+            left: Math.min(
+              Math.max(hover.x, (sprites?.w ?? 60) / 2 + 4),
+              (ref.current?.clientWidth ?? 0) - (sprites?.w ?? 60) / 2 - 4,
+            ),
+          }}
+        >
+          {preview && (
+            <div
+              style={{
+                width: sprites!.w,
+                height: sprites!.h,
+                backgroundImage: `url(${preview.src})`,
+                backgroundPosition: preview.pos,
+              }}
+            />
+          )}
+          <p className="px-2 py-0.5 text-center font-mono text-[10px] text-muted">{formatTime(hover.t)}</p>
+        </div>
+      )}
       <div
         ref={ref}
         className="relative h-20 cursor-pointer select-none overflow-hidden rounded-xl border border-line bg-surface-2"
         onClick={(e) => seekFromEvent(e.clientX)}
+        onMouseMove={(e) => {
+          const rect = ref.current?.getBoundingClientRect();
+          if (!rect) return;
+          const frac = Math.min(Math.max((e.clientX - rect.left) / rect.width, 0), 1);
+          setHover({ x: e.clientX - rect.left, t: frac * duration });
+        }}
+        onMouseLeave={() => setHover(null)}
         role="slider"
         aria-label="Video timeline"
         aria-valuemin={0}

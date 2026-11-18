@@ -521,3 +521,20 @@ def test_review_findings_regressions(client, demo_video):
             _wait(client, f"/api/videos/{v['id']}")
             client.delete(f"/api/videos/{v['id']}")
     client.delete(f"/api/videos/{vid}")
+
+
+def test_timeline_hover_sprites(client, demo_video):
+    from app.main import app
+
+    vid = _upload(client, demo_video, max_clips=1).json()["id"]
+    _wait(client, f"/api/videos/{vid}")
+    sp = client.get(f"/api/videos/{vid}/timeline").json()["sprites"]
+    assert sp["interval"] == 2.0 and sp["cols"] == 10 and sp["rows"] == 10
+    # 90 s / 2 s = 45 frames -> one sheet
+    assert len(sp["sheets"]) == 1 and 44 <= sp["count"] <= 46
+    sheet = client.get(sp["sheets"][0])
+    assert sheet.status_code == 200 and sheet.headers["content-type"] == "image/jpeg"
+    with TestClient(app) as stranger:
+        assert stranger.get(sp["sheets"][0]).status_code == 404
+    client.delete(f"/api/videos/{vid}")
+    assert client.get(sp["sheets"][0]).status_code == 404

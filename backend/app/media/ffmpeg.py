@@ -96,6 +96,22 @@ ANALYSIS_W, ANALYSIS_H = 64, 36
 AUDIO_SR = 8000
 
 
+@dataclass
+class SpriteSpec:
+    """Timeline preview frames tiled into JPEG contact sheets."""
+
+    pattern: Path  # e.g. .../sprite_%03d.jpg
+    interval: float  # seconds between frames
+    w: int = 160
+    h: int = 90
+    cols: int = 10
+    rows: int = 10
+
+    @classmethod
+    def for_duration(cls, pattern: Path, duration: float, max_frames: int = 600) -> "SpriteSpec":
+        return cls(pattern=pattern, interval=max(2.0, round(duration / max_frames, 1)))
+
+
 def decode_for_analysis(
     path: Path,
     audio_out: Path,
@@ -103,6 +119,7 @@ def decode_for_analysis(
     duration: float,
     on_frames: Callable[[bytes], None],
     progress: ProgressFn | None = None,
+    sprites: "SpriteSpec | None" = None,
 ) -> None:
     """Decode the video once, writing low-rate mono PCM to ``audio_out`` and
     streaming tiny grayscale frames to ``on_frames``.
@@ -116,6 +133,14 @@ def decode_for_analysis(
            "-i", str(path)]
     if has_audio:
         cmd += ["-map", "0:a:0", "-ac", "1", "-ar", str(AUDIO_SR), "-f", "s16le", "-y", str(audio_out)]
+    if sprites is not None:
+        # Contact sheets for the timeline's hover preview, from the same decode.
+        cmd += [
+            "-map", "0:v:0",
+            "-vf", (f"fps=1/{sprites.interval:g},scale={sprites.w}:{sprites.h}:force_original_aspect_ratio=decrease,"
+                    f"pad={sprites.w}:{sprites.h}:(ow-iw)/2:(oh-ih)/2,tile={sprites.cols}x{sprites.rows}"),
+            "-q:v", "6", "-y", str(sprites.pattern),
+        ]
     cmd += [
         "-map", "0:v:0",
         "-vf", f"fps={ANALYSIS_FPS},scale={ANALYSIS_W}:{ANALYSIS_H}:flags=area,format=gray",

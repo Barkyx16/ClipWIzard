@@ -605,7 +605,7 @@ def get_timeline(video_id: str, ws: str = Workspace) -> dict[str, Any]:
     _video_or_404(video_id, ws)
     t = db.get_timeline(video_id)
     if t is None:
-        return {"hop": 1.0, "excitement": [], "audio": [], "motion": []}
+        return {"hop": 1.0, "excitement": [], "audio": [], "motion": [], "sprites": None}
     return {"hop": t["hop"], **t["data"]}
 
 

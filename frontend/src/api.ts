@@ -136,6 +136,16 @@ export interface Timeline {
   /** Smart-crop camera path (crop centre 0..1), one value per crop_hop seconds. */
   crop_path?: number[];
   crop_hop?: number;
+  /** Contact sheets for hover previews. */
+  sprites?: {
+    interval: number;
+    w: number;
+    h: number;
+    cols: number;
+    rows: number;
+    count: number;
+    sheets: string[];
+  } | null;
 }
 
 export interface Health {

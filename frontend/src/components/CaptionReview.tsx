@@ -70,7 +70,9 @@ export default function CaptionReview({ review, stale, onStart, onEdit, onReset 
       <div className="max-h-56 space-y-1.5 overflow-y-auto pr-1">
         {review.phrases.map((p, i) => (
           <label key={i} className="flex items-center gap-2">
-            <span className="w-11 shrink-0 font-mono text-[10px] text-dim">{formatTime(review.start + p.start, true)}</span>
+            <span className="w-11 shrink-0 font-mono text-[10px] text-dim">
+              {formatTime(review.start + p.start, true)}
+            </span>
             <input
               className={`input py-1.5 ${p.text.trim() !== p.original ? "border-accent" : ""}`}
               value={p.text}
