@@ -136,3 +136,22 @@ def test_auto_export_after_analysis(client, demo_video):
         time.sleep(0.3)
     assert len(client.get(f"/api/videos/{vid}/clips").json()) == 2
     client.delete(f"/api/videos/{vid}")
+
+
+def test_auto_export_respects_render_limit(client, demo_video, monkeypatch):
+    from app.config import get_settings
+
+    monkeypatch.setattr(type(get_settings()), "max_active_renders", property(lambda self: 1), raising=False)
+    data = demo_video.read_bytes()
+    up = _start(client, data, fp="auto-cap", auto_export={"top": 3, "quality": "fast"}).json()
+    _put(client, up["id"], data, 0)
+    vid = client.post(f"/api/uploads/{up['id']}/complete").json()["id"]
+    deadline = time.time() + 90
+    while time.time() < deadline:
+        v = client.get(f"/api/videos/{vid}").json()
+        if v["status"] == "ready" and v["clips"] and all(c["status"] == "done" for c in v["clips"]):
+            break
+        time.sleep(0.5)
+    assert v["status"] == "ready"
+    assert len(v["clips"]) == 1  # capped to the workspace's render limit
+    client.delete(f"/api/videos/{vid}")

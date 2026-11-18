@@ -92,5 +92,7 @@ def test_watchdog_kills_stalled_process(tmp_path, monkeypatch):
     monkeypatch.setattr(ff, "STALL_SECONDS", 1.5)
     t0 = time.time()
     with pytest.raises(ff.FFmpegError, match="no progress"):
-        ff.run_with_progress([sys.executable, "-c", "import time; time.sleep(60)"], 10, None, tmp_path / "log")
+        ff.run_with_progress(
+            [sys.executable, "-c", "import time; print('out_time_us=1', flush=True); time.sleep(60)"],
+            10, None, tmp_path / "log")
     assert time.time() - t0 < 10

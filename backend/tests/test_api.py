@@ -597,3 +597,60 @@ def test_share_link_previews(client, demo_video):
         bogus = stranger.get("/s/nope-not-a-real-token-xyz", headers={"accept": "text/html"})
         assert bogus.status_code == 200 and "og:video" not in bogus.text and "noindex" in bogus.text
     client.delete(f"/api/videos/{vid}")
+
+
+def test_second_review_regressions(client, demo_video):
+    """Transcripts after restarts, caption word validation, upload limits, cookies, thumbnails."""
+    from app import db, jobs
+    from app.config import get_settings
+    from app.main import app
+
+    vid = _upload(client, demo_video, max_clips=2).json()["id"]
+    video = _wait(client, f"/api/videos/{vid}")
+
+    # A transcript left 'running' by a crash is failed on startup, so the video can be deleted later.
+    t = db.create_transcript(video_id=vid, start=1.0, end=4.0, status="running")
+    jobs.resume_interrupted()
+    assert db.get_transcript(t["id"])["status"] == "failed"
+
+    # Edited caption words are validated, and not echoed back on every poll.
+    bad = client.post(f"/api/videos/{vid}/clips", json={
+        "start": 1, "end": 4, "captions": True, "caption_words": [{"start": 2, "end": 1, "text": "x"}]})
+    assert bad.status_code == 422
+    ok = client.post(f"/api/videos/{vid}/clips", json={
+        "start": 1, "end": 4, "captions": True, "quality": "fast",
+        "caption_words": [{"start": 0.1, "end": 0.5, "text": "a\\Nb"}]}).json()
+    assert "caption_words" not in ok["options"]
+    clip = _wait(client, f"/api/clips/{ok['id']}")
+    assert clip["status"] == "done" and clip["transcript"] == "a\\Nb"
+
+    # Re-scans delete the thumbnails of replaced highlights.
+    old_thumbs = {h["thumbnail_url"].rsplit("/", 1)[-1] for h in video["highlights"]}
+    client.post(f"/api/videos/{vid}/reanalyze", json={"max_clips": 1})
+    _wait(client, f"/api/videos/{vid}")
+    thumbs_dir = get_settings().thumbs_dir
+    assert not any((thumbs_dir / name).exists() for name in old_thumbs)
+
+    # Reusing an upload fingerprint with a different size starts a fresh upload.
+    a = client.post("/api/uploads", json={"filename": "s.mp4", "size": 100, "fingerprint": "same"}).json()
+    b = client.post("/api/uploads", json={"filename": "s.mp4", "size": 200, "fingerprint": "same"}).json()
+    assert a["id"] != b["id"] and client.get(f"/api/uploads/{a['id']}").status_code == 404
+    client.delete(f"/api/uploads/{b['id']}")
+
+    # Minting a workspace cookie forbids shared caching of that response.
+    with TestClient(app) as fresh:
+        r = fresh.get("/api/videos")
+        assert "cw_ws=" in r.headers.get("set-cookie", "") and r.headers["cache-control"] == "no-store"
+    client.delete(f"/api/videos/{vid}")
+
+
+def test_open_upload_limit(client):
+    ids = []
+    for i in range(3):
+        r = client.post("/api/uploads", json={"filename": f"u{i}.mp4", "size": 10, "fingerprint": f"open-{i}"})
+        assert r.status_code == 201
+        ids.append(r.json()["id"])
+    r = client.post("/api/uploads", json={"filename": "u9.mp4", "size": 10, "fingerprint": "open-9"})
+    assert r.status_code == 429 and "unfinished uploads" in r.json()["detail"]
+    for uid in ids:
+        client.delete(f"/api/uploads/{uid}")

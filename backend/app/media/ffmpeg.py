@@ -159,7 +159,7 @@ def decode_for_analysis(
         dog = _Watchdog(proc, STALL_SECONDS * 2, max(3600.0, duration * 4))
         try:
             while True:
-                chunk = proc.stdout.read(batch)
+                chunk = proc.stdout.read1(batch)  # whatever is ready, so the watchdog sees steady progress
                 dog.poke()
                 if not chunk:
                     break
@@ -209,18 +209,22 @@ class _Watchdog:
     def __init__(self, proc: subprocess.Popen, stall: float, deadline: float):
         self.proc, self.stall, self.deadline = proc, stall, deadline
         self.started = self.last = time.monotonic()
+        # Seeking deep into a file can take a while before the first output; until then
+        # only the overall deadline applies.
+        self.armed = False
         self.reason: str | None = None
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
 
     def poke(self) -> None:
+        self.armed = True
         self.last = time.monotonic()
 
     def _run(self) -> None:
         while not self._stop.wait(1.0):
             now = time.monotonic()
-            if now - self.last > self.stall:
+            if self.armed and now - self.last > self.stall:
                 self.reason = f"ffmpeg made no progress for {self.stall:.0f}s"
             elif now - self.started > self.deadline:
                 self.reason = f"ffmpeg took longer than {self.deadline:.0f}s"

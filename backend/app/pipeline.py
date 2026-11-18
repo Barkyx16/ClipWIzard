@@ -158,6 +158,10 @@ def analyze_video(video_id: str) -> None:
         rows.sort(key=lambda r: -r["score"])
         for rank, r in enumerate(rows):
             r["rank"] = rank
+        keep = {r["thumbnail"] for r in rows if r.get("thumbnail")}
+        for old in db.list_highlights(video_id):
+            if old.get("thumbnail") and old["thumbnail"] not in keep:
+                (settings.thumbs_dir / old["thumbnail"]).unlink(missing_ok=True)
         db.replace_highlights(video_id, rows)
         db.update_video(
             video_id,
@@ -168,7 +172,10 @@ def analyze_video(video_id: str) -> None:
             thumbnail=rows[0]["thumbnail"] if rows else video.get("thumbnail"),
         )
         if opts_raw.get("auto_export"):
-            _auto_export(video_id, rows, opts_raw["auto_export"])
+            try:  # never let a queueing problem mark a finished analysis as failed
+                _auto_export(video_id, rows, opts_raw["auto_export"])
+            except Exception:
+                log.exception("Auto-export failed for %s", video_id)
     except Exception as e:  # report any failure to the UI
         log.exception("Analysis failed for %s", video_id)
         db.update_video(video_id, status="failed", stage="Failed", error=str(e)[:800])
@@ -183,9 +190,15 @@ def _auto_export(video_id: str, highlights: list[dict[str, Any]], spec: dict[str
     aspect = spec.get("aspect") or "vertical_blur"
     if aspect == "vertical_facecam":  # no facecam box on a fresh upload yet
         aspect = "vertical_smart"
+    top = int(spec.get("top") or 5)
+    video = db.get_video(video_id)
+    limit = get_settings().max_active_renders
+    if limit and video and video.get("workspace"):
+        # Stay within the workspace's render limit, like manual exports do.
+        top = min(top, max(0, limit - db.workspace_usage(video["workspace"])["busy_clips"]))
     count = 0
     for h in highlights:
-        if count >= int(spec.get("top") or 5):
+        if count >= top:
             break
         if not (0.5 < h["end"] - h["start"] <= 180):
             continue
@@ -504,8 +517,8 @@ def remove_video_files(video: dict[str, Any]) -> None:
     for leftover in settings.uploads_dir.glob(f"{video['id']}.*"):  # partial imports
         leftover.unlink(missing_ok=True)
     (settings.analysis_dir / f"{video['id']}.npz").unlink(missing_ok=True)
-    for sheet in settings.thumbs_dir.glob(f"{video['id']}_sprite_*.jpg"):
-        sheet.unlink(missing_ok=True)
+    for thumb in settings.thumbs_dir.glob(f"{video['id']}_*.jpg"):  # highlights + sprites, incl. orphans
+        thumb.unlink(missing_ok=True)
     for h in db.list_highlights(video["id"]):
         if h.get("thumbnail"):
             (settings.thumbs_dir / h["thumbnail"]).unlink(missing_ok=True)

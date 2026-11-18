@@ -372,6 +372,13 @@ def get_transcript(transcript_id: str) -> dict[str, Any] | None:
         return _row(conn.execute("SELECT * FROM transcripts WHERE id = ?", (transcript_id,)).fetchone())
 
 
+def transcripts_with_status(*statuses: str) -> list[dict[str, Any]]:
+    marks = ", ".join("?" for _ in statuses)
+    with connect() as conn:
+        rows = conn.execute(f"SELECT * FROM transcripts WHERE status IN ({marks})", statuses).fetchall()
+    return [_row(r) for r in rows]  # type: ignore[misc]
+
+
 def update_transcript(transcript_id: str, **fields: Any) -> None:
     fields["updated_at"] = time.time()
     _update("transcripts", transcript_id, fields)
@@ -401,6 +408,14 @@ def workspace_usage(workspace: str) -> dict[str, int]:
             "WHERE v.workspace = ? AND c.status IN ('queued', 'rendering')",
             (workspace,),
         ).fetchone()[0]
+        busy_clips += conn.execute(
+            "SELECT COUNT(*) FROM transcripts t JOIN videos v ON v.id = t.video_id "
+            "WHERE v.workspace = ? AND t.status IN ('queued', 'running')",
+            (workspace,),
+        ).fetchone()[0]
+        partial = conn.execute(
+            "SELECT COUNT(*), COALESCE(SUM(size), 0) FROM uploads WHERE workspace = ?", (workspace,)
+        ).fetchone()
         video_bytes = conn.execute(
             "SELECT COALESCE(SUM(size_bytes), 0) FROM videos WHERE workspace = ?", (workspace,)
         ).fetchone()[0]
@@ -409,8 +424,8 @@ def workspace_usage(workspace: str) -> dict[str, int]:
             "WHERE v.workspace = ?",
             (workspace,),
         ).fetchone()[0]
-    return {"busy_videos": busy_videos, "busy_clips": busy_clips,
-            "stored_bytes": int(video_bytes) + int(clip_bytes)}
+    return {"busy_videos": busy_videos, "busy_clips": busy_clips, "open_uploads": int(partial[0]),
+            "stored_bytes": int(video_bytes) + int(clip_bytes) + int(partial[1])}
 
 
 def videos_older_than(cutoff: float) -> list[dict[str, Any]]:

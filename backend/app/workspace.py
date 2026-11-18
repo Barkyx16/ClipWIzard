@@ -70,6 +70,8 @@ class WorkspaceMiddleware(BaseHTTPMiddleware):
         response = await call_next(request)
         if minted and not getattr(request.state, "workspace_switched", False):
             set_cookie(request, response, minted)
+            # A shared cache/CDN must never store a response that hands out a workspace key.
+            response.headers["Cache-Control"] = "no-store"
         return response
 
 

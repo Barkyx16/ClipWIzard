@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import html
+import io
 import logging
 import os
 import re
@@ -18,9 +19,8 @@ from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from starlette.background import BackgroundTask
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from . import db, jobs, pipeline, retention
@@ -51,6 +51,7 @@ MAX_CLIP_SECONDS = 180
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     ffmpeg.ensure_available()
+    jobs.reopen()
     db.init_db()
     jobs.resume_interrupted()
     retention.start()
@@ -117,9 +118,15 @@ class AnalyzeSettings(ApiModel):
 
 
 class CaptionWord(ApiModel):
-    start: float = Field(ge=0)
-    end: float = Field(ge=0)
+    start: float = Field(ge=0, le=MAX_CLIP_SECONDS)
+    end: float = Field(ge=0, le=MAX_CLIP_SECONDS)
     text: str = Field(min_length=1, max_length=40)
+
+    @model_validator(mode="after")
+    def _ordered(self) -> "CaptionWord":
+        if self.end < self.start:
+            raise ValueError("Caption word ends before it starts")
+        return self
 
 
 class TranscriptCreate(ApiModel):
@@ -306,7 +313,7 @@ def clip_out(c: dict[str, Any]) -> dict[str, Any]:
         "highlight_id": c["highlight_id"],
         "start": c["start"],
         "end": c["end"],
-        "options": c["options"],
+        "options": {k: v for k, v in (c["options"] or {}).items() if k != "caption_words"},
         "status": c["status"],
         "progress": c["progress"],
         "error": c["error"],
@@ -320,10 +327,11 @@ def clip_out(c: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _check_video_limits(ws: str, incoming_bytes: int = 0) -> None:
+def _check_video_limits(ws: str, incoming_bytes: int = 0, global_queue: bool = True) -> None:
     s = get_settings()
-    if s.max_queue and db.queued_videos() >= s.max_queue:
-        raise HTTPException(503, "ClipWizard is very busy right now. Please try again in a few minutes.")
+    if global_queue and s.max_queue and db.queued_videos() >= s.max_queue:
+        raise HTTPException(429, "ClipWizard is very busy right now. Please try again in a few minutes.",
+                            headers={"Retry-After": "60"})
     usage = db.workspace_usage(ws)
     if s.max_active_videos and usage["busy_videos"] >= s.max_active_videos:
         n = usage["busy_videos"]
@@ -519,8 +527,15 @@ def start_upload(body: UploadStart, ws: str = Workspace) -> dict[str, Any]:
     if body.size > s.max_upload_mb * 1024 * 1024:
         raise HTTPException(413, f"File is larger than the {s.max_upload_mb} MB limit")
     existing = db.find_upload(ws, body.fingerprint)
+    if existing and existing["size"] != body.size:
+        _partial(existing["id"]).unlink(missing_ok=True)  # same name, different file: start over
+        db.delete_upload(existing["id"])
+        existing = None
     if not existing:
         _check_video_limits(ws, body.size)
+        open_limit = max(3, s.max_active_videos)
+        if db.workspace_usage(ws)["open_uploads"] >= open_limit:
+            raise HTTPException(429, f"You have {open_limit} unfinished uploads. Finish or cancel one first.")
     if existing and existing["size"] == body.size:
         part = _partial(existing["id"])
         on_disk = part.stat().st_size if part.exists() else 0
@@ -587,7 +602,8 @@ def _complete_upload_locked(upload_id: str, ws: str) -> dict[str, Any]:
     part = _partial(upload_id)
     if u["received"] != u["size"] or not part.exists() or part.stat().st_size != u["size"]:
         raise HTTPException(409, detail={"message": "Upload is not finished", "received": u["received"]})
-    _check_video_limits(ws)
+    # The upload was admitted at start; don't throw away gigabytes now because the queue is long.
+    _check_video_limits(ws, global_queue=False)
     video_id = db.new_id()
     ext = Path(u["filename"]).suffix.lower()
     dest = get_settings().uploads_dir / f"{video_id}{ext}"
@@ -864,7 +880,7 @@ def create_transcript(video_id: str, body: TranscriptCreate, ws: str = Workspace
         raise HTTPException(422, "This video has no audio to transcribe")
     _check_render_limits(ws)
     t = db.create_transcript(video_id=video_id, start=body.start, end=min(body.end, float(v["duration"])))
-    jobs.submit(pipeline.transcribe_range, t["id"])
+    jobs.submit(pipeline.transcribe_range, t["id"], pool="transcribe")
     return transcript_out(t)
 
 
@@ -891,26 +907,71 @@ def download_all_clips(video_id: str, ws: str = Workspace) -> FileResponse:
     if not done:
         raise HTTPException(404, "No finished clips to download yet")
     s = get_settings()
-    tmp = s.work_dir / f"zip_{db.new_id()}.zip"
     titles = {h["id"]: h["title"] for h in db.list_highlights(video_id)}
     used: set[str] = set()
-    with zipfile.ZipFile(tmp, "w", compression=zipfile.ZIP_STORED) as zf:
-        for i, c in enumerate(reversed(done), start=1):
-            path = pipeline.safe_path(s.clips_dir, c["filename"])
-            if path is None:
-                continue
-            o = c.get("options") or {}
-            base = "montage" if o.get("kind") == "montage" else (titles.get(c.get("highlight_id") or "")
-                                                                 or o.get("title") or "clip")
-            slug = re.sub(r"[^A-Za-z0-9]+", "-", base).strip("-").lower()[:50] or "clip"
-            name = f"{i:02d}-{slug}.mp4"
-            while name in used:
-                name = f"{i:02d}-{slug}-{c['id'][:4]}.mp4"
-            used.add(name)
-            zf.write(path, arcname=name)
+    entries: list[tuple[Path, str]] = []
+    for i, c in enumerate(reversed(done), start=1):
+        path = pipeline.safe_path(s.clips_dir, c["filename"])
+        if path is None:
+            continue
+        o = c.get("options") or {}
+        base = "montage" if o.get("kind") == "montage" else (titles.get(c.get("highlight_id") or "")
+                                                             or o.get("title") or "clip")
+        slug = re.sub(r"[^A-Za-z0-9]+", "-", base).strip("-").lower()[:50] or "clip"
+        name = f"{i:02d}-{slug}.mp4"
+        while name in used:
+            name = f"{i:02d}-{slug}-{c['id'][:4]}.mp4"
+        used.add(name)
+        entries.append((path, name))
+    if not entries:
+        raise HTTPException(404, "No finished clips to download yet")
     stem = re.sub(r"[^A-Za-z0-9]+", "-", Path(v["original_name"]).stem).strip("-").lower()[:40] or "session"
-    return FileResponse(tmp, media_type="application/zip", filename=f"clipwizard-{stem}.zip",
-                        background=BackgroundTask(tmp.unlink, missing_ok=True))
+    return StreamingResponse(
+        _stream_zip(entries), media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="clipwizard-{stem}.zip"'},
+    )
+
+
+class _ZipSink(io.RawIOBase):
+    """Write-only, non-seekable file that hands zip bytes to a generator."""
+
+    def __init__(self) -> None:
+        self.chunks: list[bytes] = []
+        self.pos = 0
+
+    def writable(self) -> bool:
+        return True
+
+    def write(self, b) -> int:  # type: ignore[override]
+        data = bytes(b)
+        self.chunks.append(data)
+        self.pos += len(data)
+        return len(data)
+
+    def tell(self) -> int:
+        return self.pos
+
+    def take(self) -> bytes:
+        out = b"".join(self.chunks)
+        self.chunks.clear()
+        return out
+
+
+def _stream_zip(entries: list[tuple[Path, str]]):
+    """Zip (stored) built on the fly: no temp copy on disk, constant memory."""
+    sink = _ZipSink()
+    with zipfile.ZipFile(sink, "w", compression=zipfile.ZIP_STORED, allowZip64=True) as zf:
+        for path, name in entries:
+            try:
+                src = open(path, "rb")
+            except FileNotFoundError:  # deleted while downloading: skip it
+                continue
+            with src, zf.open(zipfile.ZipInfo.from_file(path, arcname=name), "w", force_zip64=True) as dst:
+                while chunk := src.read(1024 * 1024):
+                    dst.write(chunk)
+                    yield sink.take()
+            yield sink.take()
+    yield sink.take()
 
 
 @app.get("/api/clips")
@@ -1027,10 +1088,14 @@ def shared_poster(token: str) -> FileResponse:
     c, path = _shared_clip(token)
     poster = _poster_path(c["id"])
     if not poster.exists():
+        tmp = poster.with_name(f"{c['id']}.{secrets.token_hex(4)}.tmp.jpg")
         try:
-            ffmpeg.extract_frame(path, min(1.0, max(0.0, (c["end"] - c["start"]) / 3)), poster, width=720)
+            ffmpeg.extract_frame(path, min(1.0, max(0.0, (c["end"] - c["start"]) / 3)), tmp, width=720)
+            os.replace(tmp, poster)  # readers never see a half-written file
         except ffmpeg.FFmpegError as e:
             raise HTTPException(404, "No preview available") from e
+        finally:
+            tmp.unlink(missing_ok=True)
     return FileResponse(poster, media_type="image/jpeg", headers={**NOINDEX, "Cache-Control": "public, max-age=86400"})
 
 

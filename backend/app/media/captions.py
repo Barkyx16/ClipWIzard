@@ -127,7 +127,9 @@ def _ass_time(t: float) -> str:
 
 
 def _ass_escape(text: str) -> str:
-    return text.replace("\\", "\\\\").replace("{", "(").replace("}", ")").replace("\n", " ")
+    # Backslashes start ASS escapes (\N line break, \h hard space...) and braces start
+    # override tags; neither belongs in a spoken word.
+    return text.replace("\\", "").replace("{", "(").replace("}", ")").replace("\n", " ")
 
 
 def _ass_color(hex_rgb: str) -> str:
