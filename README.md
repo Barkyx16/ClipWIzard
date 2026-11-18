@@ -1,34 +1,55 @@
 # ClipWizard
 
-**AI clipping for GTA 6 creators.** Upload hours of gameplay or a full stream VOD. ClipWizard finds the
-shootouts, explosions, crashes, chases and hype moments, ranks them, and exports vertical clips ready
-for TikTok, YouTube Shorts and Instagram Reels.
+**AI clipping for GTA 6 creators.** Upload a gameplay recording or paste a Twitch/YouTube VOD link. ClipWizard finds
+the shootouts, explosions, crashes, chases and hype moments, ranks them, and exports vertical clips with captions,
+ready for TikTok, YouTube Shorts and Instagram Reels.
 
-> ClipWizard is a fan-made tool. It is not affiliated with or endorsed by Rockstar Games or Take-Two
-> Interactive. Grand Theft Auto is a trademark of its respective owner.
+> ClipWizard is a fan-made tool. It is not affiliated with or endorsed by Rockstar Games or Take-Two Interactive.
+> Grand Theft Auto is a trademark of its respective owner.
 
 ## Features
 
-- **Automatic highlight detection** that works on any recording, with no game integration needed:
+**Finding the moments**
+- **Highlight detection** that works on any recording, with no game integration needed. It looks for:
   - loudness spikes (yelling, sirens, explosions)
-  - transient bursts (gunfire, impacts)
-  - motion intensity (high-speed driving, chaos on screen)
-  - sudden loudness jumps ("boom" moments)
-  - every signal is measured against the recording's own local baseline, so loud streams with music
-    still work
-- **Smart clip windows.** Clips grow to cover the whole action, keep some build-up before the peak and
-  a beat after it, avoid starting on a scene cut, and never overlap.
-- **AI titles and captions (optional).** With an Anthropic API key, Claude looks at keyframes from each
-  highlight and writes a title, a GTA-specific category (Police Chase, Heist, Stunt...), a hype score,
-  a post caption and hashtags. It also spots menus, maps and loading screens and pushes them down the
-  ranking.
-- **Editor.** A heat-map timeline of the whole session, a looping preview, frame-accurate trim,
-  and a live crop preview.
-- **Export formats:** 9:16 with blurred fill, 9:16 smart-crop (pick the crop position), 1:1, or the
-  original 16:9. You can burn the title into the video.
-- **Bulk export** of the top 5 highlights in one click.
-- **Handles long sessions.** Uploads stream straight to disk, and each video is decoded once at low
-  resolution for analysis, so memory stays flat for multi-hour files.
+  - gunfire-like transient bursts and impacts
+  - motion intensity (driving, chaos)
+  - sudden "boom" jumps in loudness
+
+  Every signal is measured against the recording's own rolling baseline.
+- **Smart clip windows.** Each clip keeps the build-up before the peak and the reaction after, avoids starting on a
+  scene cut, and never overlaps another clip.
+- **AI titles and captions (optional).** Claude looks at keyframes and writes a title, a GTA-specific category, a hype
+  score, a post caption and hashtags. It also demotes menus, maps and loading screens.
+- **Import from a link.** YouTube, Twitch, Kick, Medal, Streamable, X, TikTok, Reddit, Vimeo, or a direct video-file
+  link.
+- **Resumable uploads.** Multi-GB files upload in chunks that retry on bad connections. Picking the same file again
+  resumes where the last attempt stopped.
+
+**Making the clips**
+- **Formats:**
+  - 9:16 blurred fill
+  - 9:16 smart crop that pans to follow the action
+  - 9:16 fixed crop
+  - 9:16 facecam split (draw a box around your cam once; it's stacked above the gameplay)
+  - 1:1 square
+  - original 16:9
+- **Auto captions.** Word-by-word, TikTok-style subtitles from voice chat and commentary, with the spoken word
+  highlighted.
+- **Burned-in title and channel-handle watermark.**
+- **Montage builder.** Stitch the best moments into one compilation with crossfades, fades to black, slides or hard
+  cuts.
+- **Editor:**
+  - heat-map timeline, looping preview, live crop preview
+  - frame-accurate trim, plus saving your own ranges as highlights
+  - keyboard shortcuts: <kbd>Space</kbd> play, <kbd>I</kbd>/<kbd>O</kbd> in/out, <kbd>←</kbd>/<kbd>→</kbd> seek,
+    <kbd>J</kbd>/<kbd>L</kbd> ±10s, <kbd>[</kbd>/<kbd>]</kbd> previous/next highlight
+- **Share links.** One click creates a private link to a finished clip that you can open on your phone to post, or send
+  to a friend. Links can be revoked.
+
+**Privacy**
+- **Private workspaces.** Each browser gets its own anonymous workspace, and visitors only see their own uploads,
+  clips and media files. The workspace key can be copied to open the same workspace on another device.
 
 ## Quick start
 
@@ -39,7 +60,8 @@ cp .env.example .env        # optional: add ANTHROPIC_API_KEY for AI titles
 docker compose up --build
 ```
 
-Open http://localhost:8000.
+Open http://localhost:8000. The first export with captions downloads the speech model (about 150 MB), which is then
+cached on the data volume.
 
 ### Local development
 
@@ -51,11 +73,10 @@ make backend                # API on :8000 (terminal 1)
 make frontend               # UI on :5173 with hot reload (terminal 2)
 ```
 
-Open http://localhost:5173. No gameplay handy? Run `make demo` to generate `demo.mp4`, a 90-second
-synthetic recording with a shootout, an explosion and a car chase.
+Open http://localhost:5173. No gameplay handy? Run `make demo` to generate `demo.mp4`, a 90-second synthetic recording
+with a shootout, an explosion and a car chase.
 
-To serve the built UI from the backend (single port, the same way Docker does it), run `make build`
-and then `make backend`, and open http://localhost:8000.
+To serve the built UI from the backend (one port, the same way Docker does it), run `make build`, then `make backend`.
 
 ### Tests
 
@@ -69,71 +90,96 @@ All settings are environment variables. Put them in `.env` (see [`.env.example`]
 
 | Variable | Default | What it does |
 | --- | --- | --- |
-| `ANTHROPIC_API_KEY` | none | Turns on AI enrichment |
+| `ANTHROPIC_API_KEY` | none | Turns on AI titles, captions and screen filtering |
 | `CLIPWIZARD_CLAUDE_MODEL` | `claude-opus-5-5` | Model used for enrichment |
-| `CLIPWIZARD_CLAUDE_EFFORT` | `low` | Effort level for each enrichment call (`low` to `max`) |
+| `CLIPWIZARD_CLAUDE_EFFORT` | `low` | Effort level per enrichment call (`low` to `max`) |
 | `CLIPWIZARD_AI_MAX_HIGHLIGHTS` | `15` | Max highlights per video sent to Claude |
-| `CLIPWIZARD_AI` | `on` | Set to `off` to disable AI even when a key is present |
+| `CLIPWIZARD_AI` | `on` | `off` disables AI even when a key is present |
+| `CLIPWIZARD_WHISPER_MODEL` | `base` | Speech model for captions (`tiny`, `base`, `small`, `medium`…) |
+| `CLIPWIZARD_WHISPER_DIR` | Hugging Face cache | Where the speech model is stored |
 | `CLIPWIZARD_DATA_DIR` | `./data` | Uploads, thumbnails, renders and the SQLite database |
-| `CLIPWIZARD_MAX_UPLOAD_MB` | `8192` | Upload size limit |
+| `CLIPWIZARD_MAX_UPLOAD_MB` | `8192` | Upload and import size limit |
+| `CLIPWIZARD_MAX_IMPORT_HOURS` | `6` | Longest VOD that can be imported from a link |
+| `CLIPWIZARD_UPLOAD_CHUNK_MB` | `16` | Chunk size for resumable uploads |
+| `CLIPWIZARD_RETENTION_DAYS` | `0` (keep forever) | Delete sessions idle for this many days. Set this on public servers |
 | `CLIPWIZARD_WORKERS` | `2` | Background jobs that run in parallel |
 | `CLIPWIZARD_FONT` | DejaVu Sans Bold | TTF used for burned-in titles |
-| `CLIPWIZARD_CORS_ORIGINS` | none | Only needed if the UI is hosted on a different origin |
+| `CLIPWIZARD_CORS_ORIGINS` | none | Only needed if the UI is hosted on another origin |
 
-AI enrichment sends about five 640px keyframes per highlight to the Anthropic API, so it costs a little
-per video. Lower `CLIPWIZARD_AI_MAX_HIGHLIGHTS` to cap the cost.
+AI enrichment sends about five 640px keyframes per highlight to the Anthropic API, so it costs a little per video.
+Lower `CLIPWIZARD_AI_MAX_HIGHLIGHTS` to cap the cost.
+
+### Restyling
+
+Every color and font in the UI comes from [`frontend/src/theme.css`](frontend/src/theme.css). Change the values there
+to rebrand the whole site. If you switch fonts, install the matching `@fontsource` package and update the imports at
+the top of `frontend/src/main.tsx`.
 
 ## How it works
 
 ```
-upload ─► ffprobe ─► single ffmpeg decode ─┬─► 8 kHz mono audio ─► loudness, gunfire-like transients, jumps
-                                            └─► 64×36 gray @ 4fps ─► motion, brightness, scene cuts
-          ─► fuse into an "excitement" curve (robust z-scores vs a 2-min rolling baseline)
-          ─► peak picking ─► grow/pad/snap windows ─► de-overlap ─► score + label
-          ─► (optional) Claude vision: title, category, caption, hashtags, hype score, gameplay check
-          ─► thumbnails ─► ready for editing / export (ffmpeg, libx264 + AAC, faststart MP4)
+upload / link ─► ffprobe ─► one ffmpeg decode (non-reference frames skipped)
+   ├─► 8 kHz mono audio ─► loudness, gunfire-like transients, loudness jumps
+   └─► 64×36 gray @ 4 fps ─► motion, brightness, scene cuts, where the action is (for smart crop)
+─► excitement curve (robust z-scores vs a 2-minute rolling baseline)
+─► peak picking ─► grow, pad and snap windows ─► de-overlap ─► score and label
+─► (optional) Claude vision: title, category, caption, hashtags, hype score, gameplay check
+─► editor ─► render: crop/fill/facecam layout + title + watermark + captions ─► MP4 (H.264/AAC, faststart)
 ```
+
+Analysis speed on a 4-core machine is about 17× realtime for 1080p60 footage (a 3-hour VOD takes roughly 10 minutes),
+and memory use stays flat regardless of length.
 
 | Path | Purpose |
 | --- | --- |
-| `backend/app/main.py` | FastAPI routes, static files, SPA hosting |
-| `backend/app/pipeline.py` | Analysis and render jobs |
+| `backend/app/main.py` | FastAPI routes, media access control, SPA hosting |
+| `backend/app/pipeline.py` | Analysis, import and render jobs |
+| `backend/app/workspace.py` | Anonymous private workspaces |
 | `backend/app/analysis/signals.py` | Audio and motion feature extraction |
 | `backend/app/analysis/highlights.py` | Highlight detection, scoring, labelling |
+| `backend/app/analysis/smartcrop.py` | Camera path for the smart vertical crop |
 | `backend/app/analysis/ai.py` | Claude enrichment (structured JSON output) |
-| `backend/app/media/render.py` | Vertical, square and landscape layouts, title overlay |
-| `backend/app/demo.py` | Synthetic test footage generator |
+| `backend/app/media/render.py` | Layouts, titles, watermark, captions, montage joining |
+| `backend/app/media/captions.py` | Speech-to-text and word-by-word caption styling |
+| `backend/app/media/importer.py` | Link imports (yt-dlp + safe direct downloader) |
+| `backend/app/retention.py` | Optional cleanup of old sessions |
 | `frontend/src/pages/ProjectPage.tsx` | Player, timeline, highlights, editor and exports |
 
 ### API
 
 | Method | Path | |
 | --- | --- | --- |
-| `GET` | `/api/health` | Server status, whether AI is enabled, upload limits |
-| `POST` | `/api/videos?filename=…&length=short\|medium\|long&max_clips=12&sensitivity=0.5&use_ai=true` | Upload (raw request body) |
-| `GET` | `/api/videos` · `/api/videos/{id}` | List, or get one with its highlights and clips |
-| `GET` | `/api/videos/{id}/timeline` | Downsampled excitement, audio and motion curves |
+| `GET` | `/api/health` | Server status and which optional features are available |
+| `POST` | `/api/uploads` → `PUT /api/uploads/{id}?offset=` → `POST /api/uploads/{id}/complete` | Resumable upload |
+| `POST` | `/api/videos?filename=…` | Single-request upload (raw body) |
+| `POST` | `/api/videos/import` | Import from a link |
+| `GET` | `/api/videos` · `/api/videos/{id}` · `/api/videos/{id}/timeline` | List, details, timeline curves |
 | `POST` | `/api/videos/{id}/reanalyze` | Re-scan with new settings |
-| `DELETE` | `/api/videos/{id}` | Delete the video and everything derived from it |
-| `PATCH` | `/api/highlights/{id}` | Edit title, caption or range |
-| `POST` | `/api/videos/{id}/clips` | Render a clip (`start`, `end`, `aspect`, `crop_x`, `title_overlay`, `title`) |
-| `POST` | `/api/videos/{id}/export-all` | Render the top N highlights |
-| `GET` | `/api/clips/{id}` · `/api/clips/{id}/download` | Clip status, MP4 download |
+| `PUT` | `/api/videos/{id}/layout` | Save the facecam rectangle |
+| `POST` / `PATCH` / `DELETE` | `/api/videos/{id}/highlights` · `/api/highlights/{id}` | Custom, edited and removed highlights |
+| `POST` | `/api/videos/{id}/clips` · `/export-all` · `/montage` | Render a clip, the top N, or a montage |
+| `GET` / `DELETE` | `/api/clips/{id}` · `/api/clips/{id}/download` | Clip status, download, delete |
+| `POST` / `DELETE` | `/api/clips/{id}/share` | Turn a share link on or off |
+| `GET` / `POST` | `/api/workspace` | Show the workspace key, or open another workspace |
 
-## Before going public
+All `/api` and `/media` routes are scoped to the caller's workspace cookie. `/s/{token}` and `/share/{token}/…` are
+the only public routes, and they only exist while a clip is shared.
 
-This is a working MVP built for a single server. Before opening it to the public, you'll want:
+## Before going big
 
-- **User accounts and auth.** Right now anyone who can reach the server sees every upload.
-- **Rate limits and storage quotas**, plus cleanup of old uploads and renders.
-- **A real job queue** (RQ, Celery or Arq) and object storage (S3 or R2) to scale past one machine.
-  Background jobs currently run inside the API process.
-- **Sandboxed media processing.** ffmpeg parses untrusted user files, so run it with tight resource limits.
+This MVP runs on a single server. Before a large public launch, you'll want:
+
+- **Accounts** (email or Discord/Twitch login) on top of the anonymous workspaces, plus storage quotas per user.
+- **Rate limits** on uploads, imports and renders.
+- **A real job queue** (RQ, Celery or Arq) and object storage (S3 or R2) to scale past one machine. Background jobs
+  currently run inside the API process.
+- **Sandboxed media processing.** ffmpeg and yt-dlp handle untrusted input, so run them with tight CPU, memory and
+  network limits.
+- **Retention.** Set `CLIPWIZARD_RETENTION_DAYS`.
 
 ## Roadmap ideas
 
-- Speech-to-text captions (word-by-word subtitles) and reaction detection from facecam audio
-- Smart vertical crop that follows the action instead of a fixed position
-- Twitch and YouTube VOD import by URL
-- Montage builder (stitch the top N clips with transitions and music)
+- Reaction detection from facecam audio (laughs, screams) as an extra highlight signal
+- Per-game tuning once real GTA 6 footage is available
+- Editable captions before export
 - Direct publishing to TikTok, YouTube Shorts and Instagram
