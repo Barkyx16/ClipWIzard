@@ -211,5 +211,5 @@ This MVP runs on a single server. Before a large public launch, you'll want:
 ## Roadmap ideas
 
 - Reaction detection from facecam audio (laughs, screams) as an extra highlight signal
-- Per-game tuning once real GTA 6 footage is available
+- Per-game tuning once real GTA 6 footage is available (see [docs/TUNING.md](docs/TUNING.md))
 - Direct publishing to TikTok, YouTube Shorts and Instagram
