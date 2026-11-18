@@ -37,6 +37,12 @@ export default function Faq({ health }: { health: Health | null }) {
           "filters out menus and loading screens. Detection works without it.",
     },
     {
+      q: "Can it make clips without me editing anything?",
+      a:
+        "Yes. Tick Auto-export when you upload or paste a link and the best moments render on their own, in the " +
+        "format you used last. You'll get a notification when they're ready, and every clip shows up in My clips.",
+    },
+    {
       q: "Which format should I pick?",
       a:
         "Blur fill keeps the whole frame and is the safe default. Smart crop fills the screen and pans to follow the " +
