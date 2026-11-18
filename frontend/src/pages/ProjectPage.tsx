@@ -57,7 +57,11 @@ function AnalyzingState({ video }: { video: Video }) {
   return (
     <div className="card mx-auto max-w-2xl p-8 text-center">
       <Loader2 className="mx-auto mb-4 h-10 w-10 animate-spin text-primary" />
-      <h2 className="font-display text-4xl tracking-wide">{video.stage ?? "Queued"}…</h2>
+      <h2 className="font-display text-4xl tracking-wide">
+        {video.status === "queued" && video.queue_ahead > 0
+          ? `${video.queue_ahead} ${video.queue_ahead === 1 ? "video" : "videos"} ahead of yours`
+          : `${video.stage ?? "Queued"}…`}
+      </h2>
       <p className="mt-2 text-sm text-muted">
         {video.status === "downloading"
           ? "Grabbing the video. Long VODs can take a while; you can leave this page and come back."

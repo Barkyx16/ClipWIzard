@@ -108,6 +108,7 @@ export interface Video {
   ai_used: boolean;
   layout: { facecam?: Rect };
   import_url: string | null;
+  queue_ahead: number;
   created_at: number;
   source_url: string;
   thumbnail_url: string | null;

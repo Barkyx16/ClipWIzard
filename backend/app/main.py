@@ -206,6 +206,7 @@ def video_out(v: dict[str, Any], include_children: bool = False) -> dict[str, An
         "ai_used": v["ai_used"],
         "layout": v.get("layout") or {},
         "import_url": v.get("import_url"),
+        "queue_ahead": db.queue_ahead(v) if v["status"] == "queued" else 0,
         "created_at": v["created_at"],
         "source_url": _media_url("uploads", v["filename"]),
         "thumbnail_url": _media_url("thumbs", v.get("thumbnail")),

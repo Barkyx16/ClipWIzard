@@ -333,6 +333,14 @@ def uploads_older_than(cutoff: float) -> list[dict[str, Any]]:
     return [_row(r) for r in rows]  # type: ignore[misc]
 
 
+def queue_ahead(video: dict[str, Any]) -> int:
+    """How many queued videos (any workspace) are waiting ahead of this one."""
+    with connect() as conn:
+        return conn.execute(
+            "SELECT COUNT(*) FROM videos WHERE status = 'queued' AND created_at < ?", (video["created_at"],)
+        ).fetchone()[0]
+
+
 def workspace_usage(workspace: str) -> dict[str, int]:
     """Active jobs and stored bytes for a workspace (used for limits)."""
     with connect() as conn:
