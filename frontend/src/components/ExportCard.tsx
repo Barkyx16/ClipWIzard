@@ -47,7 +47,10 @@ export default function ExportCard({
           {title}
         </p>
         <p className="text-xs text-muted">
-          {ASPECT_LABEL[clip.options.aspect]} · {formatTime(clip.start)}–{formatTime(clip.end)}
+          {ASPECT_LABEL[clip.options.aspect]} ·{" "}
+          {clip.options.kind === "montage"
+            ? `${clip.options.segments?.length ?? 0} moments · ${formatTime(clip.end - clip.start)}`
+            : `${formatTime(clip.start)}–${formatTime(clip.end)}`}
           {clip.size_bytes ? ` · ${formatBytes(clip.size_bytes)}` : ""}
         </p>
         {clip.error && <p className="line-clamp-3 text-xs text-bad">{clip.error}</p>}

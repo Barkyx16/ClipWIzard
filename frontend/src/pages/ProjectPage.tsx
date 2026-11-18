@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { AlertTriangle, ArrowLeft, Bot, Layers, Loader2, Play, RefreshCw, Repeat } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Bot, Loader2, Play, RefreshCw, Repeat } from "lucide-react";
 
 import { api, AnalyzeSettings, Clip, Health, Highlight, isBusy, Rect, Timeline as TimelineData, Video } from "../api";
 import ClipEditor, { EditorState } from "../components/ClipEditor";
 import ExportCard from "../components/ExportCard";
 import PlayerStage from "../components/PlayerStage";
-import HighlightCard from "../components/HighlightCard";
+import HighlightsPanel, { MontageOrder, Transition } from "../components/HighlightsPanel";
 import ProgressBar from "../components/ProgressBar";
 import Timeline from "../components/Timeline";
 import { formatTime } from "../lib/format";
@@ -264,6 +264,28 @@ export default function ProjectPage() {
     }
   };
 
+  const makeMontage = async (ids: string[], order: MontageOrder, transition: Transition) => {
+    if (!video) return false;
+    setActionError(null);
+    try {
+      const clip = await api.createMontage(video.id, {
+        highlight_ids: ids,
+        order,
+        transition,
+        aspect: editor.aspect === "vertical_crop" ? "vertical_smart" : editor.aspect,
+        title_overlay: editor.titleOverlay,
+        captions: captionsOn,
+      });
+      setVideo((v) => (v ? { ...v, clips: [clip, ...(v.clips ?? [])] } : v));
+      document.getElementById("exports-heading")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      load();
+      return true;
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : "Montage failed");
+      return false;
+    }
+  };
+
   const saveFacecam = async (rect: Rect | null) => {
     if (!video) return;
     setDrawingFacecam(false);
@@ -286,7 +308,9 @@ export default function ProjectPage() {
   };
 
   const clipTitle = (c: Clip) =>
-    highlights.find((h) => h.id === c.highlight_id)?.title ?? c.options.title ?? "Custom clip";
+    c.options.kind === "montage"
+      ? `Montage: ${c.options.segments?.length ?? 0} moments`
+      : (highlights.find((h) => h.id === c.highlight_id)?.title ?? c.options.title ?? "Custom clip");
 
   if (notFound) {
     return (
@@ -411,29 +435,13 @@ export default function ProjectPage() {
           </div>
 
           <div className="space-y-4 lg:col-start-2 lg:row-span-2 lg:row-start-1">
-            <section className="card p-4" aria-labelledby="highlights-heading">
-              <div className="mb-3 flex items-center justify-between">
-                <h2 id="highlights-heading" className="font-display text-2xl tracking-wide">
-                  Highlights
-                </h2>
-                {highlights.length > 0 && (
-                  <button type="button" className="btn-ghost px-3 py-1.5 text-xs" onClick={exportTop}>
-                    <Layers className="h-4 w-4" /> Export top {Math.min(5, highlights.length)}
-                  </button>
-                )}
-              </div>
-              {highlights.length === 0 ? (
-                <p className="py-6 text-center text-sm text-muted">
-                  No big moments found. Try a re-scan with higher sensitivity, or trim a custom clip below.
-                </p>
-              ) : (
-                <div className="max-h-[420px] space-y-2 overflow-y-auto pr-1">
-                  {highlights.map((h) => (
-                    <HighlightCard key={h.id} h={h} selected={h.id === selectedId} onSelect={(x) => select(x)} />
-                  ))}
-                </div>
-              )}
-            </section>
+            <HighlightsPanel
+              highlights={highlights}
+              selectedId={selectedId}
+              onSelect={(h) => select(h)}
+              onExportTop={exportTop}
+              onMontage={makeMontage}
+            />
 
             <ClipEditor
               highlight={selected}

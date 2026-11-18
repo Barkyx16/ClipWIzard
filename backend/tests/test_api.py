@@ -223,3 +223,33 @@ def test_captions_flow(client, demo_video, monkeypatch):
     assert clip["status"] == "done"
     assert "model download blocked" in clip["warning"]
     client.delete(f"/api/videos/{vid}")
+
+
+def test_montage_flow(client, demo_video):
+    vid = _upload(client, demo_video, max_clips=3).json()["id"]
+    video = _wait(client, f"/api/videos/{vid}")
+    ids = [h["id"] for h in video["highlights"]]
+    assert len(ids) == 3
+
+    assert client.post(f"/api/videos/{vid}/montage", json={"highlight_ids": ids[:1]}).status_code == 422
+    assert client.post(f"/api/videos/{vid}/montage", json={"highlight_ids": [ids[0], ids[0]]}).status_code == 422
+    assert client.post(f"/api/videos/{vid}/montage", json={"highlight_ids": [ids[0], "nope"]}).status_code == 404
+
+    r = client.post(f"/api/videos/{vid}/montage", json={
+        "highlight_ids": ids, "order": "timeline", "transition": "fade", "quality": "fast"})
+    assert r.status_code == 201, r.text
+    m = r.json()
+    starts = [s["start"] for s in m["options"]["segments"]]
+    assert starts == sorted(starts)
+    assert m["options"]["kind"] == "montage"
+    done = _wait(client, f"/api/clips/{m['id']}", timeout=180)
+    assert done["status"] == "done", done["error"]
+    from app.media.ffmpeg import probe
+    from app.config import get_settings
+
+    info = probe(get_settings().clips_dir / f"{m['id']}.mp4")
+    expected = sum(h["end"] - h["start"] for h in video["highlights"]) - 0.4 * 2
+    assert info.duration == pytest.approx(expected, abs=0.5)
+    dl = client.get(done["download_url"])
+    assert "montage" in dl.headers["content-disposition"]
+    client.delete(f"/api/videos/{vid}")

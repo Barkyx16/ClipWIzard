@@ -126,6 +126,16 @@ class WorkspaceSwitch(BaseModel):
     key: str = Field(min_length=32, max_length=64)
 
 
+class MontageCreate(BaseModel):
+    highlight_ids: list[str] = Field(min_length=2, max_length=20)
+    order: Literal["as_given", "timeline", "score"] = "as_given"
+    transition: Literal["fade", "fadeblack", "slideleft", "cut"] = "fade"
+    aspect: Aspect = "vertical_blur"
+    title_overlay: bool = True
+    captions: bool = False
+    quality: Literal["high", "fast"] = "high"
+
+
 class HighlightPatch(BaseModel):
     title: str | None = Field(None, max_length=120)
     caption: str | None = Field(None, max_length=600)
@@ -449,6 +459,53 @@ def export_all(video_id: str, body: ExportAll, ws: str = Workspace) -> list[dict
     return out
 
 
+MAX_MONTAGE_SECONDS = 600
+
+
+@app.post("/api/videos/{video_id}/montage", status_code=201)
+def create_montage(video_id: str, body: MontageCreate, ws: str = Workspace) -> dict[str, Any]:
+    """Stitch several highlights into one compilation video."""
+    v = _video_or_404(video_id, ws)
+    if v["status"] != "ready":
+        raise HTTPException(409, "Video analysis has not finished yet")
+    if len(set(body.highlight_ids)) != len(body.highlight_ids):
+        raise HTTPException(422, "Each moment can only be used once")
+    by_id = {h["id"]: h for h in db.list_highlights(video_id)}
+    picked = []
+    for hid in body.highlight_ids:
+        if hid not in by_id:
+            raise HTTPException(404, "Highlight not found for this video")
+        picked.append(by_id[hid])
+    if body.order == "timeline":
+        picked.sort(key=lambda h: h["start"])
+    elif body.order == "score":
+        picked.sort(key=lambda h: -h["score"])
+    total = sum(h["end"] - h["start"] for h in picked)
+    if total > MAX_MONTAGE_SECONDS:
+        raise HTTPException(422, f"Montages can be at most {MAX_MONTAGE_SECONDS // 60} minutes long")
+    options: dict[str, Any] = {
+        "kind": "montage",
+        "segments": [{"highlight_id": h["id"], "start": h["start"], "end": h["end"], "title": h["title"]}
+                     for h in picked],
+        "transition": body.transition,
+        "aspect": body.aspect,
+        "crop_x": 0.5,
+        "title_overlay": body.title_overlay,
+        "title": f"Top {len(picked)} moments",
+        "captions": body.captions,
+        "quality": body.quality,
+    }
+    if body.aspect == "vertical_facecam":
+        facecam = (v.get("layout") or {}).get("facecam")
+        if not facecam:
+            raise HTTPException(422, "Mark your facecam on the video first")
+        options["facecam"] = facecam
+    c = db.create_clip(video_id=video_id, highlight_id=None, start=0.0, end=round(total, 3),
+                       options=options)
+    jobs.submit(pipeline.render, c["id"])
+    return clip_out(c)
+
+
 @app.get("/api/videos/{video_id}/clips")
 def list_clips(video_id: str, ws: str = Workspace) -> list[dict[str, Any]]:
     _video_or_404(video_id, ws)
@@ -473,6 +530,8 @@ def download_clip(clip_id: str, ws: str = Workspace) -> FileResponse:
     if c.get("highlight_id"):
         h = db.get_highlight(c["highlight_id"])
         title = h["title"] if h else ""
+    if (c.get("options") or {}).get("kind") == "montage":
+        title = "montage"
     base = title or (Path(v["original_name"]).stem if v else "clip")
     slug = re.sub(r"[^A-Za-z0-9]+", "-", base).strip("-").lower()[:60] or "clip"
     return FileResponse(path, media_type="video/mp4", filename=f"clipwizard-{slug}-{clip_id}.mp4")

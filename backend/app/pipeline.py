@@ -19,7 +19,7 @@ from .config import get_settings
 from .media.ffmpeg import FFmpegError, decode_for_analysis, extract_frame
 from .media import captions, importer
 from .media.ffmpeg import probe
-from .media.render import RenderOptions, output_size, render_clip
+from .media.render import RenderOptions, join_segments, output_size, render_clip
 
 log = logging.getLogger(__name__)
 
@@ -212,6 +212,81 @@ def import_video(video_id: str) -> None:
     analyze_video(video_id)
 
 
+class _Progress:
+    """Throttled clip progress, mapped into the current [lo, hi] span."""
+
+    def __init__(self, clip_id: str):
+        self.clip_id = clip_id
+        self.lo, self.hi = 0.0, 1.0
+        self._last = 0.0
+
+    def span(self, lo: float, hi: float) -> "_Progress":
+        self.lo, self.hi = lo, hi
+        self(0.0)
+        return self
+
+    def __call__(self, frac: float) -> None:
+        now = time.monotonic()
+        if now - self._last >= 0.5 or frac >= 1.0:
+            self._last = now
+            db.update_clip(self.clip_id, progress=round(self.lo + (self.hi - self.lo) * frac, 4))
+
+
+def _render_options(video: dict[str, Any], o: dict[str, Any], start: float, end: float,
+                    title: str | None) -> RenderOptions:
+    opts = RenderOptions(
+        aspect=str(o.get("aspect", "vertical_blur")),
+        crop_x=float(o.get("crop_x", 0.5)),
+        title=(title or None) if o.get("title_overlay") else None,
+        quality=str(o.get("quality", "high")),
+        facecam=o.get("facecam") or None,
+    )
+    if opts.aspect == "vertical_facecam" and not opts.facecam:
+        opts.aspect = "vertical_smart"  # no facecam marked: fall back to a smart crop
+    if opts.aspect in ("vertical_smart", "vertical_facecam"):
+        loaded = load_camera_path(video["id"])
+        if loaded is not None:
+            path, hop = loaded
+            opts.crop_keys = keyframes(path, hop, start, end, every=max(0.5, (end - start) / 80))
+    return opts
+
+
+def _add_captions(src: Path, video: dict[str, Any], opts: RenderOptions, start: float, end: float,
+                  work: Path, tag: str) -> tuple[str | None, str | None]:
+    """Transcribe [start, end] and attach burned-in captions. Returns (transcript, warning)."""
+    try:
+        words = captions.transcribe(src, start, end, work)
+    except captions.CaptionError as e:
+        return None, f"Captions skipped: {e}"[:300]
+    if not words:
+        return None, "No speech found for captions"
+    out_w, out_h = output_size(opts.aspect, int(video["width"]), int(video["height"]))
+    ass = work / f"captions_{tag}.ass"
+    ass.write_text(captions.build_ass(
+        words, out_w, out_h, end - start, position=0.85 if opts.aspect == "landscape" else 0.72,
+    ), encoding="utf-8")
+    opts.captions_ass = ass
+    return captions.transcript_text(words) or None, None
+
+
+def _render_piece(src: Path, out: Path, video: dict[str, Any], o: dict[str, Any], start: float,
+                  end: float, title: str | None, work: Path, prog: _Progress, lo: float,
+                  hi: float, tag: str) -> tuple[str | None, str | None]:
+    settings = get_settings()
+    opts = _render_options(video, o, start, end, title)
+    transcript = warning = None
+    render_lo = lo
+    if o.get("captions"):
+        prog.span(lo, lo + (hi - lo) * 0.3)
+        transcript, warning = _add_captions(src, video, opts, start, end, work, tag)
+        render_lo = lo + (hi - lo) * 0.3
+    prog.span(render_lo, hi)
+    render_clip(src, out, start, end, int(video["width"]), int(video["height"]),
+                float(video["fps"] or 30), bool(video["has_audio"]), opts, work / f"r_{tag}",
+                settings.font_path, prog)
+    return transcript, warning
+
+
 def render(clip_id: str) -> None:
     settings = get_settings()
     clip = db.get_clip(clip_id)
@@ -226,66 +301,47 @@ def render(clip_id: str) -> None:
     out_name = f"{clip_id}.mp4"
     out = settings.clips_dir / out_name
     o = clip.get("options") or {}
-    opts = RenderOptions(
-        aspect=str(o.get("aspect", "vertical_blur")),
-        crop_x=float(o.get("crop_x", 0.5)),
-        title=(o.get("title") or None) if o.get("title_overlay") else None,
-        quality=str(o.get("quality", "high")),
-        facecam=o.get("facecam") or None,
-    )
-    if opts.aspect == "vertical_facecam" and not opts.facecam:
-        opts.aspect = "vertical_smart"  # no facecam marked: fall back to a smart crop
-    if opts.aspect in ("vertical_smart", "vertical_facecam"):
-        loaded = load_camera_path(video["id"])
-        if loaded is not None:
-            path, hop = loaded
-            dur = float(clip["end"]) - float(clip["start"])
-            opts.crop_keys = keyframes(path, hop, float(clip["start"]), float(clip["end"]),
-                                       every=max(0.5, dur / 80))
+    prog = _Progress(clip_id)
     db.update_clip(clip_id, status="rendering", progress=0.0, error=None, warning=None)
-    last = [0.0]
-    span = [0.0, 1.0]  # progress range used by the current step
-
-    def progress(frac: float) -> None:
-        now = time.monotonic()
-        if now - last[0] >= 0.5 or frac >= 1.0:
-            last[0] = now
-            db.update_clip(clip_id, progress=round(span[0] + (span[1] - span[0]) * frac, 4))
-
     try:
         work.mkdir(parents=True, exist_ok=True)
-        if o.get("captions"):
-            span[1] = 0.3
-            progress(0.0)
-            try:
-                words = captions.transcribe(src, float(clip["start"]), float(clip["end"]), work)
-                db.update_clip(clip_id, transcript=captions.transcript_text(words) or None)
-                if words:
-                    out_w, out_h = output_size(opts.aspect, int(video["width"]), int(video["height"]))
-                    ass = work / "captions.ass"
-                    ass.write_text(captions.build_ass(
-                        words, out_w, out_h, float(clip["end"]) - float(clip["start"]),
-                        position=0.85 if opts.aspect == "landscape" else 0.72,
-                    ), encoding="utf-8")
-                    opts.captions_ass = ass
-                else:
-                    db.update_clip(clip_id, warning="No speech found for captions")
-            except captions.CaptionError as e:
-                log.warning("Captions skipped for clip %s: %s", clip_id, e)
-                db.update_clip(clip_id, warning=f"Captions skipped: {e}"[:300])
-            span[0], span[1] = 0.3, 1.0
-        render_clip(
-            src, out, float(clip["start"]), float(clip["end"]),
-            int(video["width"]), int(video["height"]), float(video["fps"] or 30),
-            bool(video["has_audio"]), opts, work, settings.font_path, progress,
-        )
+        if o.get("kind") == "montage":
+            transcript, warning = _render_montage(src, out, video, o, work, prog)
+        else:
+            transcript, warning = _render_piece(
+                src, out, video, o, float(clip["start"]), float(clip["end"]), o.get("title"),
+                work, prog, 0.0, 1.0, "main",
+            )
         db.update_clip(clip_id, status="done", progress=1.0, filename=out_name,
-                       size_bytes=out.stat().st_size)
+                       size_bytes=out.stat().st_size, transcript=transcript, warning=warning)
     except Exception as e:
         log.exception("Render failed for clip %s", clip_id)
         db.update_clip(clip_id, status="failed", error=str(e)[:800])
     finally:
         shutil.rmtree(work, ignore_errors=True)
+
+
+def _render_montage(src: Path, out: Path, video: dict[str, Any], o: dict[str, Any], work: Path,
+                    prog: _Progress) -> tuple[str | None, str | None]:
+    segments = o.get("segments") or []
+    if not segments:
+        raise ValueError("A montage needs at least one moment")
+    n = len(segments)
+    parts: list[Path] = []
+    transcripts: list[str] = []
+    warnings: set[str] = set()
+    for i, seg in enumerate(segments):
+        part = work / f"seg_{i:02d}.mp4"
+        t, w = _render_piece(src, part, video, o, float(seg["start"]), float(seg["end"]),
+                             seg.get("title"), work, prog, 0.9 * i / n, 0.9 * (i + 1) / n, f"s{i}")
+        parts.append(part)
+        if t:
+            transcripts.append(t)
+        if w:
+            warnings.add(w)
+    prog.span(0.9, 1.0)
+    join_segments(parts, out, str(o.get("transition", "fade")), bool(video["has_audio"]), work, prog)
+    return ("\n\n".join(transcripts) or None), ("; ".join(sorted(warnings)) or None)
 
 
 def save_camera_path(video_id: str, path: np.ndarray, hop: float) -> None:

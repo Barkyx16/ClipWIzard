@@ -53,6 +53,9 @@ export interface ClipOptions {
   title: string | null;
   quality: "high" | "fast";
   captions: boolean;
+  kind?: "montage";
+  segments?: { highlight_id: string; start: number; end: number; title: string }[];
+  transition?: string;
 }
 
 export interface Clip {
@@ -164,6 +167,17 @@ export const api = {
   ) => request<Clip>(`/api/videos/${videoId}/clips`, { method: "POST", body: JSON.stringify(body) }),
   exportAll: (videoId: string, body: { aspect: Aspect; title_overlay: boolean; top: number; captions: boolean }) =>
     request<Clip[]>(`/api/videos/${videoId}/export-all`, { method: "POST", body: JSON.stringify(body) }),
+  createMontage: (
+    videoId: string,
+    body: {
+      highlight_ids: string[];
+      order: "as_given" | "timeline" | "score";
+      transition: "fade" | "fadeblack" | "slideleft" | "cut";
+      aspect: Aspect;
+      title_overlay: boolean;
+      captions: boolean;
+    },
+  ) => request<Clip>(`/api/videos/${videoId}/montage`, { method: "POST", body: JSON.stringify(body) }),
   deleteClip: (id: string) => request<void>(`/api/clips/${id}`, { method: "DELETE" }),
   updateLayout: (videoId: string, layout: { facecam: Rect | null }) =>
     request<{ facecam?: Rect }>(`/api/videos/${videoId}/layout`, { method: "PUT", body: JSON.stringify(layout) }),

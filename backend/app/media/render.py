@@ -242,3 +242,63 @@ def render_clip(src: Path, out: Path, start: float, end: float, src_w: int, src_
     run_with_progress(cmd, end - start, progress, work / "render.log")
     shutil.move(str(tmp), str(out))
     return out
+
+
+TRANSITIONS = {"fade", "fadeblack", "slideleft", "cut"}
+
+
+def join_segments(parts: list[Path], out: Path, transition: str, has_audio: bool, work: Path,
+                  progress: ProgressFn | None = None, fade: float = 0.4) -> Path:
+    """Concatenate rendered segments (same size/fps/codec) into one video."""
+    from .ffmpeg import probe
+
+    if not parts:
+        raise ValueError("Nothing to join")
+    work.mkdir(parents=True, exist_ok=True)
+    tmp = out.with_suffix(".part.mp4")
+    if len(parts) == 1:
+        shutil.copy(parts[0], tmp)
+        shutil.move(str(tmp), str(out))
+        return out
+
+    durations = [probe(p).duration for p in parts]
+    if transition not in TRANSITIONS:
+        transition = "fade"
+    fade = min(fade, min(durations) / 3)
+
+    if transition == "cut" or fade < 0.05:
+        listing = work / "concat.txt"
+        listing.write_text("".join(f"file '{p.resolve().as_posix()}'\n" for p in parts), encoding="utf-8")
+        cmd = ["ffmpeg", "-hide_banner", "-nostdin", "-v", "error", "-y", "-f", "concat", "-safe", "0",
+               "-i", str(listing), "-c", "copy", "-movflags", "+faststart",
+               "-progress", "pipe:1", "-nostats", str(tmp)]
+        run_with_progress(cmd, sum(durations), progress, work / "join.log")
+        shutil.move(str(tmp), str(out))
+        return out
+
+    cmd = ["ffmpeg", "-hide_banner", "-nostdin", "-v", "error", "-y"]
+    for p in parts:
+        cmd += ["-i", str(p)]
+    chains = [f"[{i}:v]settb=AVTB,setpts=PTS-STARTPTS,format=yuv420p[v{i}]" for i in range(len(parts))]
+    prev, offset = "v0", 0.0
+    for i in range(1, len(parts)):
+        offset += durations[i - 1] - fade
+        label = f"x{i}"
+        chains.append(f"[{prev}][v{i}]xfade=transition={transition}:duration={fade:.3f}:"
+                      f"offset={offset:.3f}[{label}]")
+        prev = label
+    maps = ["-map", f"[{prev}]"]
+    if has_audio:
+        aprev = "0:a"
+        for i in range(1, len(parts)):
+            label = f"a{i}"
+            chains.append(f"[{aprev}][{i}:a]acrossfade=d={fade:.3f}:c1=tri:c2=tri[{label}]")
+            aprev = label
+        maps += ["-map", f"[{aprev}]", "-c:a", "aac", "-b:a", "160k", "-ar", "48000"]
+    total = sum(durations) - fade * (len(parts) - 1)
+    cmd += ["-filter_complex", ";".join(chains), *maps,
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
+            "-movflags", "+faststart", "-progress", "pipe:1", "-nostats", str(tmp)]
+    run_with_progress(cmd, total, progress, work / "join.log")
+    shutil.move(str(tmp), str(out))
+    return out
