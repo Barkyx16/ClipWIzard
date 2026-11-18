@@ -415,3 +415,12 @@ def test_download_all_zip(client, demo_video):
     with TestClient(app) as stranger:
         assert stranger.get(f"/api/videos/{vid}/clips.zip").status_code == 404
     client.delete(f"/api/videos/{vid}")
+
+
+def test_rename_session(client, demo_video):
+    vid = _upload(client, demo_video, max_clips=1).json()["id"]
+    r = client.patch(f"/api/videos/{vid}", json={"name": "  Heist night\x07 #3  "})
+    assert r.status_code == 200 and r.json()["name"] == "Heist night #3"
+    assert client.patch(f"/api/videos/{vid}", json={"name": "   "}).status_code == 422
+    _wait(client, f"/api/videos/{vid}")
+    client.delete(f"/api/videos/{vid}")

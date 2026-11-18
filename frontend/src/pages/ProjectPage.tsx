@@ -4,6 +4,7 @@ import { AlertTriangle, ArrowLeft, Bot, FolderDown, Loader2, Play, RefreshCw, Re
 
 import { api, AnalyzeSettings, Clip, Health, Highlight, isBusy, Rect, Timeline as TimelineData, Video } from "../api";
 import ClipEditor, { CaptionStyle, EditorState } from "../components/ClipEditor";
+import EditableTitle from "../components/EditableTitle";
 import ExportCard from "../components/ExportCard";
 import PlayerStage from "../components/PlayerStage";
 import HighlightsPanel, { MontageOrder, Transition } from "../components/HighlightsPanel";
@@ -476,9 +477,16 @@ export default function ProjectPage() {
           <Link to="/" className="mb-1 inline-flex items-center gap-1 text-sm text-muted hover:text-ink">
             <ArrowLeft className="h-4 w-4" /> Sessions
           </Link>
-          <h1 className="truncate font-display text-4xl tracking-wide sm:text-5xl" title={video.name}>
-            {video.name}
-          </h1>
+          <EditableTitle
+            value={video.name}
+            onSave={async (name) => {
+              try {
+                setVideo(await api.renameVideo(video.id, name));
+              } catch (e) {
+                setActionError(e instanceof Error ? e.message : "Rename failed");
+              }
+            }}
+          />
           <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted">
             {video.duration ? <span>{formatTime(video.duration)}</span> : null}
             {video.width ? (

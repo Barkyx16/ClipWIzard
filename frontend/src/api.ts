@@ -171,6 +171,8 @@ export const api = {
   health: () => request<Health>("/api/health"),
   videos: () => request<Video[]>("/api/videos"),
   video: (id: string) => request<Video>(`/api/videos/${id}`),
+  renameVideo: (id: string, name: string) =>
+    request<Video>(`/api/videos/${id}`, { method: "PATCH", body: JSON.stringify({ name }) }),
   importLink: (url: string, settings: AnalyzeSettings) =>
     request<Video>("/api/videos/import", { method: "POST", body: JSON.stringify({ url, ...settings }) }),
   timeline: (id: string) => request<Timeline>(`/api/videos/${id}/timeline`),

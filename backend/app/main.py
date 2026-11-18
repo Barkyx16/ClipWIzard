@@ -163,6 +163,10 @@ class MontageCreate(BaseModel):
     watermark: str | None = Field(None, max_length=40)
 
 
+class VideoPatch(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+
+
 class HighlightCreate(BaseModel):
     start: float = Field(ge=0)
     end: float = Field(gt=0)
@@ -567,6 +571,16 @@ def reanalyze(video_id: str, body: AnalyzeSettings, ws: str = Workspace) -> dict
     db.update_video(video_id, settings=body.model_dump(), status="queued", stage="Queued",
                     progress=0.0, error=None)
     jobs.submit(pipeline.analyze_video, video_id)
+    return video_out(db.get_video(video_id), include_children=True)  # type: ignore[arg-type]
+
+
+@app.patch("/api/videos/{video_id}")
+def rename_video(video_id: str, body: VideoPatch, ws: str = Workspace) -> dict[str, Any]:
+    _video_or_404(video_id, ws)
+    name = re.sub(r"[\x00-\x1f]", "", body.name).strip()
+    if not name:
+        raise HTTPException(422, "Name can't be empty")
+    db.update_video(video_id, original_name=name[:200])
     return video_out(db.get_video(video_id), include_children=True)  # type: ignore[arg-type]
 
 
