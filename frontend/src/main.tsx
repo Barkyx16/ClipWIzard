@@ -44,8 +44,20 @@ const render = () =>
 // Make sure this browser has its workspace cookie *before* the app fires several
 // API calls in parallel (each would otherwise mint a different workspace).
 // Shared clip pages are public and don't need one.
+const linkedKey = window.location.hash.match(/^#ws=([A-Za-z0-9_-]{32,64})$/)?.[1];
 if (window.location.pathname.startsWith("/s/")) render();
-else
+else if (linkedKey) {
+  // Opened from "open on another device": adopt that workspace, then hide the key.
+  history.replaceState(null, "", window.location.pathname + window.location.search);
+  fetch("/api/workspace", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ key: linkedKey }),
+  })
+    .catch(() => undefined)
+    .finally(render);
+} else
   fetch("/api/workspace", { credentials: "same-origin" })
     .catch(() => undefined)
     .finally(render);

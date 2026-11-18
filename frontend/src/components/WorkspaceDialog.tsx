@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Check, Copy, Eye, EyeOff, KeyRound, Loader2, X } from "lucide-react";
+import { Check, Copy, Eye, EyeOff, KeyRound, Loader2, Smartphone, X } from "lucide-react";
 
 import { api } from "../api";
 
@@ -33,6 +33,19 @@ export default function WorkspaceDialog({ open, onClose }: { open: boolean; onCl
     await navigator.clipboard.writeText(key).catch(() => undefined);
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
+  };
+
+  const [linkCopied, setLinkCopied] = useState(false);
+  const deviceLink = key ? `${window.location.origin}/#ws=${key}` : "";
+  const copyLink = async () => {
+    if (!deviceLink) return;
+    if (navigator.share) {
+      await navigator.share({ title: "My ClipWizard workspace", url: deviceLink }).catch(() => undefined);
+      return;
+    }
+    await navigator.clipboard.writeText(deviceLink).catch(() => undefined);
+    setLinkCopied(true);
+    setTimeout(() => setLinkCopied(false), 1500);
   };
 
   const switchTo = async () => {
@@ -92,6 +105,14 @@ export default function WorkspaceDialog({ open, onClose }: { open: boolean; onCl
               {copied ? <Check className="h-4 w-4 text-good" /> : <Copy className="h-4 w-4" />}
             </button>
           </div>
+        </div>
+
+        <div>
+          <button type="button" className="btn-ghost w-full" onClick={copyLink} disabled={!key}>
+            {linkCopied ? <Check className="h-4 w-4 text-good" /> : <Smartphone className="h-4 w-4" />}
+            {linkCopied ? "Link copied" : "Copy a link to open this on another device"}
+          </button>
+          <p className="mt-1.5 text-xs text-dim">Send it to yourself (not to others): it contains your key.</p>
         </div>
 
         <div className="border-t border-line pt-5">
