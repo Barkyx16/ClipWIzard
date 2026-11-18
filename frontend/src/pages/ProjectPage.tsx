@@ -40,8 +40,44 @@ function savePref(key: string, value: string) {
   }
 }
 
-const loadWatermark = () => loadPref(WATERMARK_KEY, "");
-const saveWatermark = (value: string) => savePref(WATERMARK_KEY, value);
+const FORMAT_KEY = "cw_format";
+type Format = Omit<EditorState, "start" | "end" | "title">;
+const DEFAULT_FORMAT: Format = {
+  aspect: "vertical_blur",
+  cropX: 0.5,
+  titleOverlay: true,
+  captions: true,
+  captionStyle: "bold" as CaptionStyle,
+  captionPosition: 0.72,
+  watermark: "",
+  replay: false,
+  normalize: true,
+};
+
+function pickFormat(e: EditorState): Format {
+  const { start: _s, end: _e, title: _t, ...format } = e;
+  return format;
+}
+
+/** Saved format, keeping only known keys with the right types. */
+function loadFormat(): Partial<Format> {
+  const out: Record<string, unknown> = {};
+  try {
+    const saved = JSON.parse(loadPref(FORMAT_KEY, "{}")) as Record<string, unknown>;
+    // Older versions stored these two separately.
+    saved.watermark ??= loadPref(WATERMARK_KEY, "");
+    saved.captionStyle ??= loadPref("cw_caption_style", "bold");
+    for (const [k, v] of Object.entries(DEFAULT_FORMAT)) {
+      if (typeof saved[k] === typeof v) out[k] = saved[k];
+    }
+    const aspects = ["vertical_blur", "vertical_smart", "vertical_facecam", "vertical_crop", "square", "landscape"];
+    if (!aspects.includes(out.aspect as string)) delete out.aspect;
+    if (!["bold", "neon", "clean"].includes(out.captionStyle as string)) delete out.captionStyle;
+  } catch {
+    /* corrupt or missing: defaults */
+  }
+  return out as Partial<Format>;
+}
 
 function Kbd({ children }: { children: string }) {
   return (
@@ -180,22 +216,17 @@ export default function ProjectPage() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [drawingFacecam, setDrawingFacecam] = useState(false);
   const [captionReview, setCaptionReview] = useState<CaptionReviewState | null>(null);
-  const [editor, setEditor] = useState<EditorState>({
+  const [editor, setEditor] = useState<EditorState>(() => ({
     start: 0,
     end: 15,
-    aspect: "vertical_blur",
-    cropX: 0.5,
-    titleOverlay: true,
     title: "",
-    captions: true,
-    captionStyle: loadPref("cw_caption_style", "bold") as CaptionStyle,
-    captionPosition: 0.72,
-    watermark: loadWatermark(),
-    replay: false,
-    normalize: true,
-  });
-  useEffect(() => savePref("cw_caption_style", editor.captionStyle), [editor.captionStyle]);
-  useEffect(() => saveWatermark(editor.watermark), [editor.watermark]);
+    ...DEFAULT_FORMAT,
+    ...loadFormat(),
+  }));
+  // Remember format choices (not the range or title) for the next session.
+  const format = pickFormat(editor);
+  const formatKey = JSON.stringify(format);
+  useEffect(() => savePref(FORMAT_KEY, formatKey), [formatKey]);
   const [health, setHealth] = useState<Health | null>(null);
   useEffect(() => {
     api
