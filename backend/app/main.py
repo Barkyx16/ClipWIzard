@@ -30,6 +30,7 @@ from .workspace import (
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("clipwizard")
 
+Aspect = Literal["landscape", "vertical_blur", "vertical_crop", "vertical_smart", "square"]
 ALLOWED_EXTENSIONS = {".mp4", ".mov", ".mkv", ".webm", ".avi", ".m4v", ".ts", ".flv"}
 MAX_CLIP_SECONDS = 180
 
@@ -74,7 +75,7 @@ class ClipCreate(BaseModel):
     highlight_id: str | None = None
     start: float = Field(ge=0)
     end: float = Field(gt=0)
-    aspect: Literal["landscape", "vertical_blur", "vertical_crop", "square"] = "vertical_blur"
+    aspect: Aspect = "vertical_blur"
     crop_x: float = Field(0.5, ge=0.0, le=1.0)
     title_overlay: bool = False
     title: str | None = Field(None, max_length=120)
@@ -90,7 +91,7 @@ class ClipCreate(BaseModel):
 
 
 class ExportAll(BaseModel):
-    aspect: Literal["landscape", "vertical_blur", "vertical_crop", "square"] = "vertical_blur"
+    aspect: Aspect = "vertical_blur"
     title_overlay: bool = True
     top: int = Field(5, ge=1, le=30)
     quality: Literal["high", "fast"] = "high"

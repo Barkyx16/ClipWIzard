@@ -61,6 +61,10 @@ class Settings:
         return self.data_dir / "work"
 
     @property
+    def analysis_dir(self) -> Path:
+        return self.data_dir / "analysis"
+
+    @property
     def db_path(self) -> Path:
         return self.data_dir / "clipwizard.sqlite3"
 
@@ -72,7 +76,8 @@ class Settings:
         return self.ai_requested and has_credential
 
     def ensure_dirs(self) -> None:
-        for d in (self.uploads_dir, self.thumbs_dir, self.clips_dir, self.work_dir):
+        for d in (self.uploads_dir, self.thumbs_dir, self.clips_dir, self.work_dir,
+                  self.analysis_dir):
             d.mkdir(parents=True, exist_ok=True)
 
 

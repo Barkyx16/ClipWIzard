@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import shutil
 import textwrap
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
+from ..analysis.smartcrop import crop_x_expression
 from .ffmpeg import ProgressFn, run_with_progress
 
 ASPECTS = {
@@ -14,6 +15,7 @@ ASPECTS = {
     "landscape": (1920, 1080),
     "vertical_blur": (1080, 1920),
     "vertical_crop": (1080, 1920),
+    "vertical_smart": (1080, 1920),
     "square": (1080, 1080),
 }
 
@@ -32,6 +34,8 @@ class RenderOptions:
     crop_x: float = 0.5  # 0 = left edge, 1 = right edge (vertical_crop only)
     title: str | None = None  # burned-in title text; None/"" = no overlay
     quality: str = "high"  # "high" or "fast"
+    # vertical_smart: (seconds since clip start, crop centre 0..1) keyframes
+    crop_keys: list[tuple[float, float]] = field(default_factory=list)
 
 
 def _escape_filter_path(p: Path | str) -> str:
@@ -112,11 +116,15 @@ def build_command(src: Path, out: Path, start: float, end: float, src_w: int, sr
         out_h = _even(scale_h)
         out_w = _even(src_w * out_h / max(1, src_h))
         graph = f"[0:v]scale={out_w}:{out_h}:flags=lanczos,setsar=1[base]"
-    elif opts.aspect == "vertical_crop":
+    elif opts.aspect in ("vertical_crop", "vertical_smart"):
         target = out_w / out_h
         if src_w / src_h > target:
             cw, ch = _even(src_h * target), _even(src_h)
-            cx = int((src_w - cw) * min(1.0, max(0.0, opts.crop_x)))
+            if opts.aspect == "vertical_smart" and opts.crop_keys:
+                cx: int | str = "'" + crop_x_expression(opts.crop_keys, src_w, cw) + "'"
+            else:
+                centre = 0.5 if opts.aspect == "vertical_smart" else opts.crop_x
+                cx = int((src_w - cw) * min(1.0, max(0.0, centre)))
             cy = 0
         else:
             cw, ch = _even(src_w), _even(src_w / target)

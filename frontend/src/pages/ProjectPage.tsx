@@ -169,6 +169,17 @@ export default function ProjectPage() {
     }
   }, [video?.status, highlights, selectedId, select]);
 
+  // Keep the edit range inside the video (e.g. short videos with no highlights).
+  const duration = video?.duration ?? 0;
+  useEffect(() => {
+    if (!duration) return;
+    setEditor((s) =>
+      s.end > duration || s.start >= duration
+        ? { ...s, start: Math.min(s.start, Math.max(0, duration - 1)), end: duration }
+        : s,
+    );
+  }, [duration]);
+
   const onTimeUpdate = () => {
     const el = videoRef.current;
     if (!el) return;
@@ -262,11 +273,24 @@ export default function ProjectPage() {
     );
   }
 
+  const smartCentre = (t: number) => {
+    const path = timeline?.crop_path;
+    const hop = timeline?.crop_hop;
+    if (!path?.length || !hop) return 0.5;
+    const pos = Math.min(Math.max(t / hop, 0), path.length - 1);
+    const i = Math.floor(pos);
+    const j = Math.min(i + 1, path.length - 1);
+    return path[i] + (path[j] - path[i]) * (pos - i);
+  };
+
   const cropOverlay =
-    editor.aspect === "vertical_crop" && video.width / video.height > 9 / 16
+    (editor.aspect === "vertical_crop" || editor.aspect === "vertical_smart") && video.width / video.height > 9 / 16
       ? (() => {
           const frac = (video.height * (9 / 16)) / video.width;
-          return { left: (1 - frac) * editor.cropX * 100, width: frac * 100 };
+          if (editor.aspect === "vertical_crop") return { left: (1 - frac) * editor.cropX * 100, width: frac * 100 };
+          const centre = smartCentre(currentTime);
+          const left = Math.min(Math.max(centre - frac / 2, 0), 1 - frac);
+          return { left: left * 100, width: frac * 100 };
         })()
       : null;
 
@@ -333,7 +357,7 @@ export default function ProjectPage() {
                   onSeeked={onTimeUpdate}
                 />
                 {cropOverlay && (
-                  <div className="pointer-events-none absolute inset-0">
+                  <div className="pointer-events-none absolute inset-0 [&>div]:transition-all [&>div]:duration-300 [&>div]:ease-linear">
                     <div className="absolute inset-y-0 left-0 bg-black/60" style={{ width: `${cropOverlay.left}%` }} />
                     <div
                       className="absolute inset-y-0 border-2 border-accent"

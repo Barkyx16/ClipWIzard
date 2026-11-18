@@ -8,9 +8,12 @@ import time
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+
 from . import db
 from .analysis import ai
 from .analysis.highlights import DetectOptions, detect_highlights, timeline
+from .analysis.smartcrop import camera_path, keyframes
 from .analysis.signals import MotionAccumulator, build_signals
 from .config import get_settings
 from .media.ffmpeg import FFmpegError, decode_for_analysis, extract_frame
@@ -86,6 +89,13 @@ def analyze_video(video_id: str) -> None:
         _Throttle(video_id, 0.75, 0.8, "Picking the best moments")
         feat, cands = detect_highlights(sig, duration, opts)
         hop, curves = timeline(feat, sig)
+        if sig.focus_x is not None and len(sig.focus_x):
+            path = camera_path(sig.focus_x, sig.focus_conf, sig.hop)
+            save_camera_path(video_id, path, sig.hop)
+            # 1 Hz copy for the editor's live crop preview.
+            step = max(1, int(round(1.0 / sig.hop)))
+            curves["crop_hop"] = sig.hop * step  # type: ignore[assignment]
+            curves["crop_path"] = [round(float(v), 3) for v in path[::step]]
         db.save_timeline(video_id, hop, curves)
 
         ai_results: dict[int, dict[str, Any]] = {}
@@ -177,6 +187,13 @@ def render(clip_id: str) -> None:
         title=(o.get("title") or None) if o.get("title_overlay") else None,
         quality=str(o.get("quality", "high")),
     )
+    if opts.aspect == "vertical_smart":
+        loaded = load_camera_path(video["id"])
+        if loaded is not None:
+            path, hop = loaded
+            dur = float(clip["end"]) - float(clip["start"])
+            opts.crop_keys = keyframes(path, hop, float(clip["start"]), float(clip["end"]),
+                                       every=max(0.5, dur / 80))
     db.update_clip(clip_id, status="rendering", progress=0.0, error=None)
     last = [0.0]
 
@@ -201,9 +218,22 @@ def render(clip_id: str) -> None:
         shutil.rmtree(work, ignore_errors=True)
 
 
+def save_camera_path(video_id: str, path: np.ndarray, hop: float) -> None:
+    np.savez_compressed(get_settings().analysis_dir / f"{video_id}.npz", path=path, hop=hop)
+
+
+def load_camera_path(video_id: str) -> tuple[np.ndarray, float] | None:
+    f = get_settings().analysis_dir / f"{video_id}.npz"
+    if not f.exists():
+        return None
+    with np.load(f) as data:
+        return data["path"].astype(np.float32), float(data["hop"])
+
+
 def remove_video_files(video: dict[str, Any]) -> None:
     settings = get_settings()
     (settings.uploads_dir / video["filename"]).unlink(missing_ok=True)
+    (settings.analysis_dir / f"{video['id']}.npz").unlink(missing_ok=True)
     for h in db.list_highlights(video["id"]):
         if h.get("thumbnail"):
             (settings.thumbs_dir / h["thumbnail"]).unlink(missing_ok=True)

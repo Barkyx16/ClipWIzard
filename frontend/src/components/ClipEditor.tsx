@@ -13,11 +13,12 @@ export interface EditorState {
   title: string;
 }
 
-const ASPECTS: { value: Aspect; label: string; hint: string; w: number; h: number }[] = [
-  { value: "vertical_blur", label: "Vertical", hint: "Blur fill", w: 9, h: 16 },
-  { value: "vertical_crop", label: "Vertical", hint: "Crop", w: 9, h: 16 },
-  { value: "square", label: "Square", hint: "1:1", w: 1, h: 1 },
-  { value: "landscape", label: "Original", hint: "16:9", w: 16, h: 9 },
+const ASPECTS: { value: Aspect; label: string; hint: string; w: number; h: number; tip: string }[] = [
+  { value: "vertical_blur", label: "Blur fill", hint: "9:16", w: 9, h: 16, tip: "Whole frame over a blurred background" },
+  { value: "vertical_smart", label: "Smart", hint: "9:16", w: 9, h: 16, tip: "Full-screen crop that pans to follow the action" },
+  { value: "vertical_crop", label: "Fixed", hint: "9:16", w: 9, h: 16, tip: "Full-screen crop at a position you choose" },
+  { value: "square", label: "Square", hint: "1:1", w: 1, h: 1, tip: "1:1 with blurred background" },
+  { value: "landscape", label: "Original", hint: "16:9", w: 16, h: 9, tip: "Keep the original shape" },
 ];
 
 function TimeField({
@@ -61,6 +62,14 @@ function TimeField({
         </button>
       </div>
     </div>
+  );
+}
+
+function Sparkle() {
+  return (
+    <svg viewBox="0 0 12 12" className="-ml-1 -mt-5 h-3 w-3 fill-accent" aria-hidden>
+      <path d="M6 0l1.4 4.6L12 6 7.4 7.4 6 12 4.6 7.4 0 6l4.6-1.4z" />
+    </svg>
   );
 }
 
@@ -152,14 +161,15 @@ export default function ClipEditor({ highlight, state, duration, currentTime, ex
 
       <div>
         <p className="label mb-2">Format</p>
-        <div className="grid grid-cols-4 gap-2">
+        <div className="grid grid-cols-5 gap-1.5">
           {ASPECTS.map((a) => (
             <button
               key={a.value}
               type="button"
+              title={a.tip}
               onClick={() => onChange({ aspect: a.value })}
               aria-pressed={state.aspect === a.value}
-              className={`flex flex-col items-center gap-1.5 rounded-xl border p-2 text-xs transition ${
+              className={`flex flex-col items-center gap-1.5 rounded-xl border px-1 py-2 text-xs transition ${
                 state.aspect === a.value ? "border-primary bg-primary/10 text-ink" : "border-line text-muted hover:border-muted/60"
               }`}
             >
@@ -168,12 +178,18 @@ export default function ClipEditor({ highlight, state, duration, currentTime, ex
                   className={`block rounded-sm border-2 ${state.aspect === a.value ? "border-primary" : "border-dim"}`}
                   style={{ width: (a.w / Math.max(a.w, a.h)) * 32, height: (a.h / Math.max(a.w, a.h)) * 32 }}
                 />
+                {a.value === "vertical_smart" && <Sparkle />}
               </span>
               <span className="font-semibold">{a.label}</span>
               <span className="-mt-1 text-[10px] opacity-75">{a.hint}</span>
             </button>
           ))}
         </div>
+        {state.aspect === "vertical_smart" && (
+          <p className="mt-2 text-xs text-muted">
+            The crop pans to follow the action. Press play to preview the moving frame on the player.
+          </p>
+        )}
         {state.aspect === "vertical_crop" && (
           <label className="mt-3 block">
             <span className="label">Crop position</span>

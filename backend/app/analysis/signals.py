@@ -7,6 +7,8 @@ Every curve is sampled on the same grid: one value per ``HOP`` seconds.
 * ``motion``     - mean absolute frame difference, 0..1 (driving, chaos)
 * ``brightness`` - mean luma, 0..1 (used to spot black/loading screens)
 * ``cuts``       - 1.0 where a hard scene cut happens
+* ``focus_x``    - horizontal centre of *localised* motion, 0..1 (smart crop)
+* ``focus_conf`` - how much to trust ``focus_x``, 0..1
 """
 
 from __future__ import annotations
@@ -32,6 +34,8 @@ class Signals:
     brightness: np.ndarray
     cuts: np.ndarray
     has_audio: bool
+    focus_x: np.ndarray | None = None
+    focus_conf: np.ndarray | None = None
 
     def __len__(self) -> int:
         return len(self.motion)
@@ -44,6 +48,8 @@ class MotionAccumulator:
         self._prev: np.ndarray | None = None
         self.motion: list[np.ndarray] = []
         self.brightness: list[np.ndarray] = []
+        self.focus_x: list[np.ndarray] = []
+        self.focus_conf: list[np.ndarray] = []
 
     def feed(self, raw: bytes) -> None:
         frames = np.frombuffer(raw, dtype=np.uint8).reshape(-1, ANALYSIS_H, ANALYSIS_W)
@@ -53,15 +59,33 @@ class MotionAccumulator:
         else:
             prev = self._prev[None]
         stacked = np.concatenate([prev, frames], axis=0)
-        diffs = np.abs(np.diff(stacked, axis=0)).mean(axis=(1, 2))
+        d = np.abs(np.diff(stacked, axis=0))
+        diffs = d.mean(axis=(1, 2))
         self.motion.append(diffs)
         self.brightness.append(frames.mean(axis=(1, 2)))
         self._prev = frames[-1]
+
+        # Where is the action? Column-wise motion minus the frame's median
+        # column (which removes whole-screen camera pans), then a centroid.
+        cols = d.mean(axis=1)
+        local = np.clip(cols - np.median(cols, axis=1, keepdims=True), 0, None)
+        total = local.sum(axis=1)
+        xs = (np.arange(ANALYSIS_W, dtype=np.float32) + 0.5) / ANALYSIS_W
+        centroid = np.where(total > 1e-6, (local * xs).sum(axis=1) / np.maximum(total, 1e-9), 0.5)
+        localised = total / (cols.sum(axis=1) + 1e-6)
+        conf = np.clip(localised * 2.0, 0, 1) * np.clip(diffs / 0.02, 0, 1)
+        self.focus_x.append(centroid.astype(np.float32))
+        self.focus_conf.append(conf.astype(np.float32))
 
     def result(self) -> tuple[np.ndarray, np.ndarray]:
         if not self.motion:
             return np.zeros(0, np.float32), np.zeros(0, np.float32)
         return np.concatenate(self.motion), np.concatenate(self.brightness)
+
+    def focus(self) -> tuple[np.ndarray, np.ndarray]:
+        if not self.focus_x:
+            return np.zeros(0, np.float32), np.zeros(0, np.float32)
+        return np.concatenate(self.focus_x), np.concatenate(self.focus_conf)
 
 
 def audio_features(audio_path: Path, n_hops: int) -> tuple[np.ndarray, np.ndarray]:
@@ -112,5 +136,7 @@ def build_signals(audio_path: Path | None, motion_acc: MotionAccumulator,
         loud = np.full(n, -90.0, dtype=np.float32)
         onsets = np.zeros(n, dtype=np.float32)
     cuts = (motion > CUT_THRESHOLD).astype(np.float32)
+    focus_x, focus_conf = motion_acc.focus()
     return Signals(hop=HOP, loudness=loud, onsets=onsets, motion=motion.astype(np.float32),
-                   brightness=brightness.astype(np.float32), cuts=cuts, has_audio=has_audio)
+                   brightness=brightness.astype(np.float32), cuts=cuts, has_audio=has_audio,
+                   focus_x=focus_x, focus_conf=focus_conf)

@@ -7,6 +7,7 @@ import ProgressBar from "./ProgressBar";
 const ASPECT_LABEL: Record<string, string> = {
   vertical_blur: "9:16 blur",
   vertical_crop: "9:16 crop",
+  vertical_smart: "9:16 smart crop",
   square: "1:1",
   landscape: "16:9",
 };

@@ -1,6 +1,6 @@
 export type VideoStatus = "uploaded" | "queued" | "analyzing" | "ready" | "failed";
 export type ClipStatus = "queued" | "rendering" | "done" | "failed";
-export type Aspect = "vertical_blur" | "vertical_crop" | "square" | "landscape";
+export type Aspect = "vertical_blur" | "vertical_smart" | "vertical_crop" | "square" | "landscape";
 export type ClipLength = "short" | "medium" | "long";
 
 export interface AnalyzeSettings {
@@ -90,6 +90,9 @@ export interface Timeline {
   excitement: number[];
   audio: number[];
   motion: number[];
+  /** Smart-crop camera path (crop centre 0..1), one value per crop_hop seconds. */
+  crop_path?: number[];
+  crop_hop?: number;
 }
 
 export interface Health {
