@@ -12,6 +12,7 @@ Two paths:
 
 from __future__ import annotations
 
+import http.client
 import ipaddress
 import os
 import re
@@ -102,17 +103,87 @@ def display_name(url: str) -> str:
 # ------------------------------------------------------------------ direct links
 
 
-def _check_public(host: str, port: int | None) -> None:
-    if _allow_private():
-        return
+_NAT64 = ipaddress.ip_network("64:ff9b::/96")
+_IPV4_COMPAT = ipaddress.ip_network("::/96")
+
+
+def _is_public(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    if isinstance(ip, ipaddress.IPv6Address):
+        if ip.ipv4_mapped:
+            return _is_public(ip.ipv4_mapped)
+        if ip in _NAT64 or ip in _IPV4_COMPAT:  # embedded IPv4 in the last 32 bits
+            return _is_public(ipaddress.IPv4Address(int(ip) & 0xFFFFFFFF))
+    return ip.is_global and not ip.is_multicast
+
+
+def _resolve_public(host: str, port: int) -> list[tuple]:
+    """Resolve once and refuse if *any* address is private."""
     try:
-        infos = socket.getaddrinfo(host, port or 443, proto=socket.IPPROTO_TCP)
+        infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
     except socket.gaierror as e:
         raise ImportFailed(f"Couldn't find the server '{host}'") from e
-    for info in infos:
-        ip = ipaddress.ip_address(info[4][0])
-        if not ip.is_global or ip.is_multicast:
-            raise ImportFailed("That link points to a private network address")
+    if not _allow_private():
+        for info in infos:
+            if not _is_public(ipaddress.ip_address(info[4][0])):
+                raise ImportFailed("That link points to a private network address")
+    return infos
+
+
+def _check_public(host: str, port: int | None) -> None:
+    _resolve_public(host, port or 443)
+
+
+def _connect_public(host: str, port: int, timeout: float | None) -> socket.socket:
+    """Connect to an address from the *same* resolution that was validated.
+
+    Validating and connecting with one lookup closes the DNS-rebinding gap
+    where a hostname answers with a public IP for the check and a private one
+    for the real connection.
+    """
+    last: OSError | None = None
+    for family, kind, proto, _name, addr in _resolve_public(host, port):
+        sock = socket.socket(family, kind, proto)
+        if timeout is not None:
+            sock.settimeout(timeout)
+        try:
+            sock.connect(addr)
+            return sock
+        except OSError as e:
+            last = e
+            sock.close()
+    raise last or OSError(f"Couldn't connect to {host}")
+
+
+class _PublicHTTPConnection(http.client.HTTPConnection):
+    def connect(self) -> None:
+        self.sock = _connect_public(self.host, self.port, self.timeout)
+
+
+class _PublicHTTPSConnection(http.client.HTTPSConnection):
+    def connect(self) -> None:
+        sock = _connect_public(self.host, self.port, self.timeout)
+        self.sock = self._context.wrap_socket(sock, server_hostname=self.host)
+
+
+class _PublicHTTPHandler(urllib.request.HTTPHandler):
+    def http_open(self, req):  # type: ignore[override]
+        return self.do_open(_PublicHTTPConnection, req)
+
+
+class _PublicHTTPSHandler(urllib.request.HTTPSHandler):
+    def https_open(self, req):  # type: ignore[override]
+        return self.do_open(_PublicHTTPSConnection, req, context=self._context)
+
+
+def _opener() -> urllib.request.OpenerDirector:
+    handlers: list = [_SafeRedirects()]
+    if os.environ.get("CLIPWIZARD_IMPORT_USE_PROXY") == "1":
+        # Egress through a proxy: the proxy resolves names, so rely on its policy.
+        return urllib.request.build_opener(*handlers)
+    # No proxy, and every connection (including redirects) goes through the
+    # checked connect above.
+    handlers += [urllib.request.ProxyHandler({}), _PublicHTTPHandler(), _PublicHTTPSHandler()]
+    return urllib.request.build_opener(*handlers)
 
 
 class _SafeRedirects(urllib.request.HTTPRedirectHandler):
@@ -130,7 +201,7 @@ def download_direct(url: str, dest: Path, limit_bytes: int,
                     progress: ProgressFn | None = None) -> Path:
     parts = urllib.parse.urlsplit(url)
     _check_public(parts.hostname or "", parts.port)
-    opener = urllib.request.build_opener(_SafeRedirects())
+    opener = _opener()
     req = urllib.request.Request(url, headers={"User-Agent": "ClipWizard/0.2 (+video import)"})
     tmp = dest.with_suffix(dest.suffix + ".part")
     try:

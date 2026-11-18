@@ -159,3 +159,39 @@ def test_import_api_platform_uses_title(demo_video, monkeypatch):
         assert video["status"] == "ready", video["error"]
         assert video["name"] == "Insane GTA 6 police chase | Stream #42.mp4"
         assert video["import_url"] == "https://www.twitch.tv/videos/1"
+
+
+def test_dns_rebinding_is_blocked_at_connect_time(monkeypatch, tmp_path):
+    """First lookup says public, the next says loopback: the connection must be refused."""
+    import socket as _socket
+
+    monkeypatch.delenv("CLIPWIZARD_ALLOW_PRIVATE_URLS", raising=False)
+    monkeypatch.delenv("CLIPWIZARD_IMPORT_USE_PROXY", raising=False)
+    real = _socket.getaddrinfo
+    calls = {"n": 0}
+
+    def flaky(host, port, *a, **k):
+        if host == "rebind.example":
+            calls["n"] += 1
+            ip = "93.184.216.34" if calls["n"] == 1 else "127.0.0.1"
+            return [(_socket.AF_INET, _socket.SOCK_STREAM, 6, "", (ip, port))]
+        return real(host, port, *a, **k)
+
+    monkeypatch.setattr(_socket, "getaddrinfo", flaky)
+    with pytest.raises(importer.ImportFailed, match="private"):
+        importer.download_direct("http://rebind.example/v.mp4", tmp_path / "x.mp4", 2**20)
+    assert calls["n"] >= 2
+
+
+@pytest.mark.parametrize("addr", ["::ffff:127.0.0.1", "::127.0.0.1", "64:ff9b::a00:1", "100.64.0.1", "0.0.0.0"])
+def test_embedded_private_addresses(addr):
+    import ipaddress
+
+    assert not importer._is_public(ipaddress.ip_address(addr))
+
+
+def test_public_addresses_allowed():
+    import ipaddress
+
+    assert importer._is_public(ipaddress.ip_address("93.184.216.34"))
+    assert importer._is_public(ipaddress.ip_address("2606:2800:220:1:248:1893:25c8:1946"))

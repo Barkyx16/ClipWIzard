@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
+import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
@@ -128,9 +131,11 @@ def decode_for_analysis(
         assert proc.stdout is not None
         frames_seen = 0
         leftover = b""
+        dog = _Watchdog(proc, STALL_SECONDS * 2, max(3600.0, duration * 4))
         try:
             while True:
                 chunk = proc.stdout.read(batch)
+                dog.poke()
                 if not chunk:
                     break
                 data = leftover + chunk
@@ -142,8 +147,11 @@ def decode_for_analysis(
                     if progress:
                         progress(min(1.0, frames_seen / expected_frames))
         finally:
+            dog.stop()
             proc.stdout.close()
             code = proc.wait()
+    if dog.reason:
+        raise FFmpegError(f"Analysis stopped: {dog.reason}")
     if code != 0:
         err = log_path.read_text(errors="replace").strip()[-500:]
         raise FFmpegError(f"ffmpeg failed while decoding: {err}")
@@ -164,20 +172,62 @@ def extract_frame(path: Path, t: float, out: Path, width: int = 640) -> Path:
 # ------------------------------------------------------------------ rendering
 
 
+STALL_SECONDS = float(os.environ.get("CLIPWIZARD_FFMPEG_STALL_SECONDS", "180"))
+
+
+class _Watchdog:
+    """Kills a subprocess that stops producing output or exceeds a deadline.
+
+    SIGKILL, because a wedged ffmpeg filter can ignore SIGTERM.
+    """
+
+    def __init__(self, proc: subprocess.Popen, stall: float, deadline: float):
+        self.proc, self.stall, self.deadline = proc, stall, deadline
+        self.started = self.last = time.monotonic()
+        self.reason: str | None = None
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def poke(self) -> None:
+        self.last = time.monotonic()
+
+    def _run(self) -> None:
+        while not self._stop.wait(1.0):
+            now = time.monotonic()
+            if now - self.last > self.stall:
+                self.reason = f"ffmpeg made no progress for {self.stall:.0f}s"
+            elif now - self.started > self.deadline:
+                self.reason = f"ffmpeg took longer than {self.deadline:.0f}s"
+            if self.reason:
+                self.proc.kill()
+                return
+
+    def stop(self) -> None:
+        self._stop.set()
+
+
 def run_with_progress(cmd: list[str], duration: float, progress: ProgressFn | None,
                       log_path: Path) -> None:
     """Run an ffmpeg command that was given ``-progress pipe:1``."""
     with open(log_path, "wb") as log:
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=log, text=True)
         assert proc.stdout is not None
-        for line in proc.stdout:
-            key, _, value = line.strip().partition("=")
-            if key == "out_time_us" and progress and duration > 0:
-                try:
-                    progress(min(1.0, max(0.0, int(value) / 1e6 / duration)))
-                except ValueError:
-                    pass
-        code = proc.wait()
+        dog = _Watchdog(proc, STALL_SECONDS, max(900.0, duration * 40))
+        try:
+            for line in proc.stdout:
+                dog.poke()
+                key, _, value = line.strip().partition("=")
+                if key == "out_time_us" and progress and duration > 0:
+                    try:
+                        progress(min(1.0, max(0.0, int(value) / 1e6 / duration)))
+                    except ValueError:
+                        pass
+            code = proc.wait()
+        finally:
+            dog.stop()
+    if dog.reason:
+        raise FFmpegError(f"Render stopped: {dog.reason}")
     if code != 0:
         err = log_path.read_text(errors="replace").strip()[-800:]
         raise FFmpegError(f"ffmpeg failed while rendering: {err}")

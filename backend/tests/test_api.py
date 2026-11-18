@@ -462,3 +462,62 @@ def test_transcript_review_and_edited_captions(client, demo_video, monkeypatch):
     assert clip["transcript"] == "no way"
     assert calls == []
     client.delete(f"/api/videos/{vid}")
+
+
+def test_review_findings_regressions(client, demo_video):
+    """Bounds, readiness, Infinity/NaN, deletes during renders, double completes."""
+    import threading
+
+    from app import db
+
+    vid = _upload(client, demo_video, max_clips=2).json()["id"]
+    video = _wait(client, f"/api/videos/{vid}")
+    hid = video["highlights"][0]["id"]
+
+    # Infinity / NaN are rejected instead of being stored.
+    for bad in ("1e999", "NaN", "Infinity"):
+        r = client.patch(f"/api/highlights/{hid}", content=f'{{"end": {bad}}}',
+                         headers={"content-type": "application/json"})
+        assert r.status_code == 422, (bad, r.text)
+    # Edits are clamped to the video length.
+    r = client.patch(f"/api/highlights/{hid}", json={"start": 60, "end": 400})
+    assert r.status_code == 200 and r.json()["end"] == pytest.approx(90, abs=0.5)
+
+    # A highlight that can't become a clip is skipped by export-all, not a 500.
+    db.update_highlight(hid, start=0.0, end=500.0)
+    r = client.post(f"/api/videos/{vid}/export-all", json={"top": 1, "quality": "fast"})
+    assert r.status_code == 201 and r.json() == []
+
+    # Clips can't be queued until the video is analysed.
+    db.update_video(vid, status="analyzing")
+    assert client.post(f"/api/videos/{vid}/clips", json={"start": 1, "end": 4}).status_code == 409
+    db.update_video(vid, status="ready")
+
+    # Deleting is refused while a clip still renders from the source.
+    c = client.post(f"/api/videos/{vid}/clips", json={"start": 1, "end": 4, "quality": "fast"}).json()
+    db.update_clip(c["id"], status="rendering")
+    assert client.delete(f"/api/videos/{vid}").status_code == 409
+    db.update_clip(c["id"], status="done")
+    _wait(client, f"/api/clips/{c['id']}")
+
+    # Two simultaneous "complete" calls create exactly one video.
+    data = demo_video.read_bytes()
+    up = client.post("/api/uploads", json={"filename": "race.mp4", "size": len(data), "fingerprint": "race"}).json()
+    client.put(f"/api/uploads/{up['id']}", params={"offset": 0}, content=data,
+               headers={"content-type": "application/octet-stream"})
+    codes = []
+
+    def finish():
+        codes.append(client.post(f"/api/uploads/{up['id']}/complete").status_code)
+
+    threads = [threading.Thread(target=finish) for _ in range(2)]
+    [t.start() for t in threads]
+    [t.join() for t in threads]
+    assert sorted(codes)[0] == 201 and sorted(codes)[1] in (404, 409), codes
+    names = [v["name"] for v in client.get("/api/videos").json()]
+    assert names.count("race.mp4") == 1
+    for v in client.get("/api/videos").json():
+        if v["name"] == "race.mp4":
+            _wait(client, f"/api/videos/{v['id']}")
+            client.delete(f"/api/videos/{v['id']}")
+    client.delete(f"/api/videos/{vid}")

@@ -109,6 +109,7 @@ def _title_filters(title: str, out_w: int, out_h: int, work: Path, font: str | N
             "shadowx=0",
             "shadowy=3",
             "shadowcolor=black@0.6",
+            "expansion=none",  # user text: never evaluate %{...} expressions
             "x=(w-text_w)/2",
             f"y={top + i * line_h}",
         ]
@@ -170,6 +171,7 @@ def _watermark_filter(text: str, out_w: int, out_h: int, work: Path, font: str |
         "bordercolor=black@0.6",
         f"x=w-text_w-{int(out_w * 0.04)}",
         f"y=h-text_h-{int(out_h * (0.12 if out_h > out_w else 0.05))}",
+        "expansion=none",
     ]
     if font:
         parts.insert(1, f"fontfile='{_escape_filter_path(font)}'")

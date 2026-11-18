@@ -64,3 +64,33 @@ def test_loudness_normalisation(demo_video, tmp_path):
     before, after = _integrated_lufs(quiet), _integrated_lufs(norm)
     assert before < -25
     assert -17 < after < -11
+
+
+@pytest.mark.parametrize("title", ["%{e:while(1,1)}", "100% headshot", "%{localtime}"])
+def test_titles_are_never_evaluated(demo_video, tmp_path, title):
+    """drawtext expansion would hang on %{e:while(1,1)} and drop titles containing %."""
+    import time
+
+    from app.media.render import build_command
+
+    cmd = build_command(demo_video, tmp_path / "x.mp4", 1, 2, 320, 180, True,
+                        RenderOptions(aspect="landscape", title=title, watermark=title), tmp_path, None)
+    graph = cmd[cmd.index("-filter_complex") + 1]
+    assert graph.count("expansion=none") == 2
+    t0 = time.time()
+    render_clip(demo_video, tmp_path / "t.mp4", 1, 2, 320, 180, 25.0, True,
+                RenderOptions(aspect="landscape", title=title, watermark=title, quality="fast"), tmp_path / "w")
+    assert time.time() - t0 < 30
+
+
+def test_watchdog_kills_stalled_process(tmp_path, monkeypatch):
+    import sys
+    import time
+
+    from app.media import ffmpeg as ff
+
+    monkeypatch.setattr(ff, "STALL_SECONDS", 1.5)
+    t0 = time.time()
+    with pytest.raises(ff.FFmpegError, match="no progress"):
+        ff.run_with_progress([sys.executable, "-c", "import time; time.sleep(60)"], 10, None, tmp_path / "log")
+    assert time.time() - t0 < 10

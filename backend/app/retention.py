@@ -38,7 +38,7 @@ def cleanup_once(days: float | None = None, now: float | None = None) -> int:
     cutoff = (now or time.time()) - days * 86400
     removed = 0
     for video in db.videos_older_than(cutoff):
-        if any(c["status"] in ("queued", "rendering") for c in db.list_clips(video["id"])):
+        if db.video_has_active_jobs(video["id"]):
             continue
         remove_video_files(video)
         db.delete_video(video["id"])

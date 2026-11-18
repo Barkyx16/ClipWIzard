@@ -7,6 +7,7 @@ import logging
 import os
 import re
 import secrets
+import threading
 import zipfile
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -14,10 +15,12 @@ from typing import Any, Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.background import BackgroundTask
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from . import db, jobs, pipeline, retention
 from .config import get_settings
@@ -60,6 +63,14 @@ app = FastAPI(title="ClipWizard", version="0.2.0", lifespan=lifespan)
 app.add_middleware(WorkspaceMiddleware)
 Workspace = Depends(current_workspace)
 
+
+@app.exception_handler(RequestValidationError)
+async def validation_error(_: Request, exc: RequestValidationError) -> JSONResponse:
+    """Like FastAPI's default 422, minus the echoed input (which may be Infinity/NaN,
+    or large, and isn't needed by the UI)."""
+    errors = [{k: v for k, v in e.items() if k in ("type", "loc", "msg")} for e in exc.errors()]
+    return JSONResponse(status_code=422, content={"detail": jsonable_encoder(errors)})
+
 _cors = os.environ.get("CLIPWIZARD_CORS_ORIGINS")
 if _cors:
     app.add_middleware(
@@ -73,20 +84,26 @@ if _cors:
 # ------------------------------------------------------------------ schemas
 
 
-class AnalyzeSettings(BaseModel):
+class ApiModel(BaseModel):
+    """Base for request bodies: JSON allows Infinity/NaN, we don't."""
+
+    model_config = ConfigDict(allow_inf_nan=False)
+
+
+class AnalyzeSettings(ApiModel):
     length: Literal["short", "medium", "long"] = "short"
     max_clips: int = Field(12, ge=1, le=30)
     sensitivity: float = Field(0.5, ge=0.0, le=1.0)
     use_ai: bool = True
 
 
-class CaptionWord(BaseModel):
+class CaptionWord(ApiModel):
     start: float = Field(ge=0)
     end: float = Field(ge=0)
     text: str = Field(min_length=1, max_length=40)
 
 
-class TranscriptCreate(BaseModel):
+class TranscriptCreate(ApiModel):
     start: float = Field(ge=0)
     end: float = Field(gt=0)
 
@@ -97,7 +114,7 @@ class TranscriptCreate(BaseModel):
         return self
 
 
-class ClipCreate(BaseModel):
+class ClipCreate(ApiModel):
     highlight_id: str | None = None
     start: float = Field(ge=0)
     end: float = Field(gt=0)
@@ -124,7 +141,7 @@ class ClipCreate(BaseModel):
         return self
 
 
-class ExportAll(BaseModel):
+class ExportAll(ApiModel):
     aspect: Aspect = "vertical_blur"
     title_overlay: bool = True
     top: int = Field(5, ge=1, le=30)
@@ -137,7 +154,7 @@ class ExportAll(BaseModel):
     watermark: str | None = Field(None, max_length=40)
 
 
-class Rect(BaseModel):
+class Rect(ApiModel):
     x: float = Field(ge=0, le=1)
     y: float = Field(ge=0, le=1)
     w: float = Field(gt=0.02, le=1)
@@ -150,7 +167,7 @@ class Rect(BaseModel):
         return self
 
 
-class LayoutUpdate(BaseModel):
+class LayoutUpdate(ApiModel):
     facecam: Rect | None = None
 
 
@@ -164,11 +181,11 @@ class UploadStart(AnalyzeSettings):
     fingerprint: str = Field(min_length=1, max_length=400)
 
 
-class WorkspaceSwitch(BaseModel):
+class WorkspaceSwitch(ApiModel):
     key: str = Field(min_length=32, max_length=64)
 
 
-class MontageCreate(BaseModel):
+class MontageCreate(ApiModel):
     highlight_ids: list[str] = Field(min_length=2, max_length=20)
     normalize: bool = True
     order: Literal["as_given", "timeline", "score"] = "as_given"
@@ -182,11 +199,11 @@ class MontageCreate(BaseModel):
     watermark: str | None = Field(None, max_length=40)
 
 
-class VideoPatch(BaseModel):
+class VideoPatch(ApiModel):
     name: str = Field(min_length=1, max_length=200)
 
 
-class HighlightCreate(BaseModel):
+class HighlightCreate(ApiModel):
     start: float = Field(ge=0)
     end: float = Field(gt=0)
     title: str | None = Field(None, max_length=120)
@@ -200,7 +217,7 @@ class HighlightCreate(BaseModel):
         return self
 
 
-class HighlightPatch(BaseModel):
+class HighlightPatch(ApiModel):
     title: str | None = Field(None, max_length=120)
     caption: str | None = Field(None, max_length=600)
     start: float | None = Field(None, ge=0)
@@ -449,6 +466,7 @@ def import_link(body: ImportRequest, ws: str = Workspace) -> dict[str, Any]:
 CHUNK_SIZE = int(float(os.environ.get("CLIPWIZARD_UPLOAD_CHUNK_MB", "16")) * 1024 * 1024)
 MAX_CHUNK = 64 * 1024 * 1024
 _upload_locks: dict[str, asyncio.Lock] = {}
+_complete_locks: dict[str, threading.Lock] = {}
 
 
 def upload_out(u: dict[str, Any]) -> dict[str, Any]:
@@ -530,7 +548,19 @@ async def put_chunk(upload_id: str, request: Request, offset: int = Query(..., g
 
 @app.post("/api/uploads/{upload_id}/complete", status_code=201)
 def complete_upload(upload_id: str, ws: str = Workspace) -> dict[str, Any]:
-    u = _upload_or_404(upload_id, ws)
+    _upload_or_404(upload_id, ws)
+    lock = _complete_locks.setdefault(upload_id, threading.Lock())
+    try:
+        with lock:
+            return _complete_upload_locked(upload_id, ws)
+    finally:
+        _complete_locks.pop(upload_id, None)
+
+
+def _complete_upload_locked(upload_id: str, ws: str) -> dict[str, Any]:
+    u = db.get_upload(upload_id)
+    if u is None:
+        raise HTTPException(409, "This upload was already completed")
     part = _partial(upload_id)
     if u["received"] != u["size"] or not part.exists() or part.stat().st_size != u["size"]:
         raise HTTPException(409, detail={"message": "Upload is not finished", "received": u["received"]})
@@ -619,8 +649,8 @@ def update_layout(video_id: str, body: LayoutUpdate, ws: str = Workspace) -> dic
 @app.delete("/api/videos/{video_id}", status_code=204)
 def delete_video(video_id: str, ws: str = Workspace) -> None:
     v = _video_or_404(video_id, ws)
-    if v["status"] in ("queued", "analyzing", "downloading"):
-        raise HTTPException(409, "Wait for processing to finish before deleting")
+    if v["status"] in ("queued", "analyzing", "downloading") or db.video_has_active_jobs(video_id):
+        raise HTTPException(409, "Wait for processing and renders to finish before deleting")
     pipeline.remove_video_files(v)
     db.delete_video(video_id)
 
@@ -629,9 +659,17 @@ def delete_video(video_id: str, ws: str = Workspace) -> None:
 def patch_highlight(highlight_id: str, body: HighlightPatch, ws: str = Workspace) -> dict[str, Any]:
     h = _highlight_or_404(highlight_id, ws)
     changes = body.model_dump(exclude_none=True)
+    v = db.get_video(h["video_id"])
+    duration = float((v or {}).get("duration") or 0)
     start, end = changes.get("start", h["start"]), changes.get("end", h["end"])
+    if duration:
+        end = min(end, duration)
     if end <= start + 0.5:
         raise HTTPException(422, "Highlight end must be after its start")
+    if end - start > MAX_CLIP_SECONDS:
+        raise HTTPException(422, f"Highlights can be at most {MAX_CLIP_SECONDS} seconds long")
+    if "start" in changes or "end" in changes:
+        changes.update(start=round(start, 3), end=round(end, 3))
     db.update_highlight(highlight_id, **changes)
     return highlight_out(db.get_highlight(highlight_id))  # type: ignore[arg-type]
 
@@ -681,7 +719,7 @@ def delete_highlight(highlight_id: str, ws: str = Workspace) -> None:
 
 
 def _queue_clip(v: dict[str, Any], body: ClipCreate) -> dict[str, Any]:
-    if v["status"] != "ready" and body.highlight_id:
+    if v["status"] != "ready":
         raise HTTPException(409, "Video analysis has not finished yet")
     duration = float(v["duration"] or 0)
     start = min(body.start, max(0.0, duration - 0.5))
@@ -724,6 +762,8 @@ def export_all(video_id: str, body: ExportAll, ws: str = Workspace) -> list[dict
     _check_render_limits(ws, min(body.top, len(db.list_highlights(video_id))))
     out = []
     for h in db.list_highlights(video_id)[: body.top]:
+        if not (0.5 < h["end"] - h["start"] <= MAX_CLIP_SECONDS):
+            continue
         out.append(_queue_clip(v, ClipCreate(
             highlight_id=h["id"], start=h["start"], end=h["end"], aspect=body.aspect,
             title_overlay=body.title_overlay, title=h["title"], quality=body.quality,

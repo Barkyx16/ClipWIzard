@@ -372,6 +372,18 @@ def update_transcript(transcript_id: str, **fields: Any) -> None:
     _update("transcripts", transcript_id, fields)
 
 
+def video_has_active_jobs(video_id: str) -> bool:
+    """Clips rendering or transcripts running that still read the source video."""
+    with connect() as conn:
+        clips = conn.execute(
+            "SELECT 1 FROM clips WHERE video_id = ? AND status IN ('queued', 'rendering') LIMIT 1", (video_id,)
+        ).fetchone()
+        transcripts = conn.execute(
+            "SELECT 1 FROM transcripts WHERE video_id = ? AND status IN ('queued', 'running') LIMIT 1", (video_id,)
+        ).fetchone()
+    return bool(clips or transcripts)
+
+
 def workspace_usage(workspace: str) -> dict[str, int]:
     """Active jobs and stored bytes for a workspace (used for limits)."""
     with connect() as conn:
