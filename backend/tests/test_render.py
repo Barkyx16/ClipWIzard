@@ -33,3 +33,12 @@ def test_strip_unrenderable():
 
     assert strip_unrenderable("Sent to orbit 🚀🔥 lol") == "Sent to orbit lol"
     assert strip_unrenderable("Café — ok") == "Café — ok"
+
+
+def test_slow_motion_doubles_duration(demo_video, tmp_path):
+    out = tmp_path / "slow.mp4"
+    render_clip(demo_video, out, 52.0, 55.0, 320, 180, 25.0, True,
+                RenderOptions(aspect="landscape", speed=0.5, quality="fast"), tmp_path / "w")
+    info = probe(out)
+    assert abs(info.duration - 6.0) < 0.3
+    assert info.has_audio

@@ -91,6 +91,7 @@ class ClipCreate(BaseModel):
     caption_style: CaptionStyle = "bold"
     caption_position: float = Field(0.72, ge=0.3, le=0.92)
     watermark: str | None = Field(None, max_length=40)
+    replay: bool = False
 
     @model_validator(mode="after")
     def _check_range(self) -> "ClipCreate":
@@ -105,6 +106,7 @@ class ExportAll(BaseModel):
     aspect: Aspect = "vertical_blur"
     title_overlay: bool = True
     top: int = Field(5, ge=1, le=30)
+    replay: bool = False
     quality: Literal["high", "fast"] = "high"
     captions: bool = False
     caption_style: CaptionStyle = "bold"
@@ -653,7 +655,7 @@ def _queue_clip(v: dict[str, Any], body: ClipCreate) -> dict[str, Any]:
             raise HTTPException(404, "Highlight not found for this video")
     options = body.model_dump(
         include={"aspect", "crop_x", "title_overlay", "title", "quality", "captions", "caption_style",
-                 "caption_position", "watermark"}
+                 "caption_position", "watermark", "replay"}
     )
     if body.aspect == "vertical_facecam":
         facecam = (v.get("layout") or {}).get("facecam")
@@ -685,7 +687,7 @@ def export_all(video_id: str, body: ExportAll, ws: str = Workspace) -> list[dict
             highlight_id=h["id"], start=h["start"], end=h["end"], aspect=body.aspect,
             title_overlay=body.title_overlay, title=h["title"], quality=body.quality,
             captions=body.captions, caption_style=body.caption_style,
-            caption_position=body.caption_position, watermark=body.watermark,
+            caption_position=body.caption_position, watermark=body.watermark, replay=body.replay,
         )))
     return out
 

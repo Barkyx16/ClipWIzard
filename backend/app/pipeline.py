@@ -310,6 +310,8 @@ def render(clip_id: str) -> None:
         work.mkdir(parents=True, exist_ok=True)
         if o.get("kind") == "montage":
             transcript, warning = _render_montage(src, out, video, o, work, prog)
+        elif o.get("replay"):
+            transcript, warning = _render_with_replay(src, out, clip, video, o, work, prog)
         else:
             transcript, warning = _render_piece(
                 src, out, video, o, float(clip["start"]), float(clip["end"]), o.get("title"),
@@ -322,6 +324,53 @@ def render(clip_id: str) -> None:
         db.update_clip(clip_id, status="failed", error=str(e)[:800])
     finally:
         shutil.rmtree(work, ignore_errors=True)
+
+
+REPLAY_SECONDS = 3.0
+
+
+def _replay_window(clip: dict[str, Any], start: float, end: float) -> tuple[float, float]:
+    """Three seconds around the clip's peak (highlight peak, else loudest moment, else middle)."""
+    peak = None
+    if clip.get("highlight_id"):
+        h = db.get_highlight(clip["highlight_id"])
+        if h and start <= h["peak"] <= end:
+            peak = float(h["peak"])
+    if peak is None:
+        t = db.get_timeline(clip["video_id"])
+        exc = (t or {}).get("data", {}).get("excitement") if t else None
+        if exc:
+            hop = float(t["hop"])  # type: ignore[index]
+            a, b = int(start / hop), max(int(start / hop) + 1, int(end / hop))
+            window = exc[a:b]
+            if window:
+                peak = (a + max(range(len(window)), key=window.__getitem__) + 0.5) * hop
+    if peak is None:
+        peak = (start + end) / 2
+    r0 = max(start, peak - REPLAY_SECONDS * 0.6)
+    r1 = min(end, r0 + REPLAY_SECONDS)
+    return r0, r1
+
+
+def _render_with_replay(src: Path, out: Path, clip: dict[str, Any], video: dict[str, Any],
+                        o: dict[str, Any], work: Path, prog: _Progress) -> tuple[str | None, str | None]:
+    """The clip, a white flash, then its peak again at half speed."""
+    start, end = float(clip["start"]), float(clip["end"])
+    main = work / "main.mp4"
+    transcript, warning = _render_piece(src, main, video, o, start, end, o.get("title"), work, prog,
+                                        0.0, 0.7, "main")
+    r0, r1 = _replay_window(clip, start, end)
+    replay = work / "replay.mp4"
+    replay_opts = {**o, "captions": False, "title_overlay": True}
+    opts = _render_options(video, replay_opts, r0, r1, "SLOW-MO REPLAY")
+    opts.speed = 0.5
+    prog.span(0.7, 0.9)
+    render_clip(src, replay, r0, r1, int(video["width"]), int(video["height"]),
+                float(video["fps"] or 30), bool(video["has_audio"]), opts, work / "r_replay",
+                get_settings().font_path, prog)
+    prog.span(0.9, 1.0)
+    join_segments([main, replay], out, "fadewhite", bool(video["has_audio"]), work, prog, fade=0.25)
+    return transcript, warning
 
 
 def _render_montage(src: Path, out: Path, video: dict[str, Any], o: dict[str, Any], work: Path,

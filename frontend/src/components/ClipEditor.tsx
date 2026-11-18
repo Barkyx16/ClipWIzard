@@ -8,6 +8,7 @@ import {
   Loader2,
   Minus,
   Plus,
+  Rewind,
   ScanFace,
   Scissors,
   Trash2,
@@ -28,6 +29,7 @@ export interface EditorState {
   captionStyle: CaptionStyle;
   captionPosition: number;
   watermark: string;
+  replay: boolean;
 }
 
 export type CaptionStyle = "bold" | "neon" | "clean";
@@ -408,6 +410,21 @@ export default function ClipEditor({
           </label>
         </div>
       )}
+
+      <label className="flex items-start gap-2 text-sm">
+        <input
+          type="checkbox"
+          className="mt-0.5 h-4 w-4 accent-primary"
+          checked={state.replay}
+          onChange={(e) => onChange({ replay: e.target.checked })}
+        />
+        <span>
+          <span className="flex items-center gap-1.5">
+            <Rewind className="h-4 w-4 text-accent" /> Slow-mo replay
+          </span>
+          <span className="block text-xs text-muted">Replays the peak moment at half speed at the end.</span>
+        </span>
+      </label>
 
       <div className="space-y-2">
         <label className="flex items-center gap-2 text-sm">

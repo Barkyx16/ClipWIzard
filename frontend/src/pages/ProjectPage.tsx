@@ -161,6 +161,7 @@ export default function ProjectPage() {
     captionStyle: loadPref("cw_caption_style", "bold") as CaptionStyle,
     captionPosition: 0.72,
     watermark: loadWatermark(),
+    replay: false,
   });
   useEffect(() => savePref("cw_caption_style", editor.captionStyle), [editor.captionStyle]);
   useEffect(() => saveWatermark(editor.watermark), [editor.watermark]);
@@ -327,6 +328,7 @@ export default function ProjectPage() {
         watermark: editor.watermark.trim() || null,
         caption_style: editor.captionStyle,
         caption_position: editor.captionPosition,
+        replay: editor.replay,
       });
       setVideo((v) => (v ? { ...v, clips: [clip, ...(v.clips ?? [])] } : v));
       load();
@@ -352,6 +354,7 @@ export default function ProjectPage() {
         watermark: editor.watermark.trim() || null,
         caption_style: editor.captionStyle,
         caption_position: editor.captionPosition,
+        replay: editor.replay,
       });
       load();
     } catch (e) {

@@ -56,6 +56,7 @@ export interface ClipOptions {
   caption_style?: string;
   caption_position?: number;
   watermark?: string | null;
+  replay?: boolean;
   kind?: "montage";
   segments?: { highlight_id: string; start: number; end: number; title: string }[];
   transition?: string;
@@ -190,6 +191,7 @@ export const api = {
       watermark?: string | null;
       caption_style?: string;
       caption_position?: number;
+      replay?: boolean;
     },
   ) => request<Clip[]>(`/api/videos/${videoId}/export-all`, { method: "POST", body: JSON.stringify(body) }),
   createHighlight: (videoId: string, body: { start: number; end: number; title?: string }) =>

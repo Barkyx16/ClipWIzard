@@ -43,6 +43,8 @@ class RenderOptions:
     captions_ass: Path | None = None
     # Channel handle shown in a corner, e.g. "@clipking"
     watermark: str | None = None
+    # Playback speed (0.5 = half-speed slow motion, for replays)
+    speed: float = 1.0
 
 
 def _escape_filter_path(p: Path | str) -> str:
@@ -215,7 +217,9 @@ def build_command(src: Path, out: Path, start: float, end: float, src_w: int, sr
     layout = "facecam" if opts.aspect == "vertical_facecam" and opts.facecam else opts.aspect
     titles = _title_filters(opts.title, out_w, out_h, work, font, layout,
                             seam=seam if layout == "facecam" else None) if opts.title else []
-    overlays = list(titles)
+    speed = min(2.0, max(0.5, opts.speed))
+    overlays = [f"setpts=PTS/{speed:g}"] if speed != 1.0 else []
+    overlays += titles
     if opts.watermark:
         overlays.append(_watermark_filter(opts.watermark, out_w, out_h, work, font))
     if opts.captions_ass is not None:
@@ -228,14 +232,16 @@ def build_command(src: Path, out: Path, start: float, end: float, src_w: int, sr
     preset, crf = ("veryfast", "20") if opts.quality == "high" else ("ultrafast", "26")
     cmd = [
         "ffmpeg", "-hide_banner", "-nostdin", "-v", "error", "-y",
-        "-ss", f"{start:.3f}", "-i", str(src), "-t", f"{duration:.3f}",
+        "-ss", f"{start:.3f}", "-i", str(src), "-t", f"{duration / speed:.3f}",
         "-filter_complex", graph, "-map", "[vout]",
     ]
     if has_audio:
-        fade_out = max(0.0, duration - 0.35)
+        out_dur = duration / speed
+        fade_out = max(0.0, out_dur - 0.35)
+        tempo = f"atempo={speed:g}," if speed != 1.0 else ""
         cmd += [
             "-map", "0:a:0?",
-            "-af", f"afade=t=in:st=0:d=0.15,afade=t=out:st={fade_out:.3f}:d=0.35",
+            "-af", f"{tempo}afade=t=in:st=0:d=0.15,afade=t=out:st={fade_out:.3f}:d=0.35",
             "-c:a", "aac", "-b:a", "160k", "-ar", "48000",
         ]
     else:
@@ -261,12 +267,12 @@ def render_clip(src: Path, out: Path, start: float, end: float, src_w: int, src_
     cmd[cmd.index("-r") + 1] = str(fps)
     tmp = out.with_suffix(".part.mp4")
     cmd[-1] = str(tmp)
-    run_with_progress(cmd, end - start, progress, work / "render.log")
+    run_with_progress(cmd, (end - start) / min(2.0, max(0.5, opts.speed)), progress, work / "render.log")
     shutil.move(str(tmp), str(out))
     return out
 
 
-TRANSITIONS = {"fade", "fadeblack", "slideleft", "cut"}
+TRANSITIONS = {"fade", "fadeblack", "fadewhite", "slideleft", "cut"}
 
 
 def join_segments(parts: list[Path], out: Path, transition: str, has_audio: bool, work: Path,

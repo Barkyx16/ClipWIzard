@@ -375,3 +375,21 @@ def test_workspace_limits(demo_video, monkeypatch):
             assert r2.status_code == 429
         _wait(c, f"/api/clips/{r1.json()['id']}")
         c.delete(f"/api/videos/{vid}")
+
+
+def test_clip_with_slow_mo_replay(client, demo_video):
+    from app.config import get_settings
+    from app.media.ffmpeg import probe
+
+    vid = _upload(client, demo_video, max_clips=1).json()["id"]
+    video = _wait(client, f"/api/videos/{vid}")
+    h = video["highlights"][0]
+    end = min(h["end"], h["start"] + 8)
+    r = client.post(f"/api/videos/{vid}/clips", json={
+        "highlight_id": h["id"], "start": h["start"], "end": end, "replay": True, "quality": "fast"})
+    clip = _wait(client, f"/api/clips/{r.json()['id']}")
+    assert clip["status"] == "done", clip["error"]
+    info = probe(get_settings().clips_dir / f"{clip['id']}.mp4")
+    # clip + 3s replay at half speed (6s) - 0.25s flash overlap
+    assert abs(info.duration - ((end - h["start"]) + 6.0 - 0.25)) < 0.5
+    client.delete(f"/api/videos/{vid}")
