@@ -294,7 +294,8 @@ def join_segments(parts: list[Path], out: Path, transition: str, has_audio: bool
         shutil.move(str(tmp), str(out))
         return out
 
-    durations = [probe(p).duration for p in parts]
+    probes = [probe(p) for p in parts]
+    durations = [pr.duration for pr in probes]
     if transition not in TRANSITIONS:
         transition = "fade"
     fade = min(fade, min(durations) / 3)
@@ -312,7 +313,11 @@ def join_segments(parts: list[Path], out: Path, transition: str, has_audio: bool
     cmd = ["ffmpeg", "-hide_banner", "-nostdin", "-v", "error", "-y"]
     for p in parts:
         cmd += ["-i", str(p)]
-    chains = [f"[{i}:v]settb=AVTB,setpts=PTS-STARTPTS,format=yuv420p[v{i}]" for i in range(len(parts))]
+    # xfade needs a known constant frame rate and matching timebases. ffmpeg 7 treats the
+    # output of setpts (and settb) as variable-rate and xfade then refuses it, so the fps
+    # filter must come after setpts: it pins the rate and gives every input the same timebase.
+    rate = f"{round(probes[0].fps or 30.0, 3):g}"
+    chains = [f"[{i}:v]setpts=PTS-STARTPTS,fps={rate},format=yuv420p[v{i}]" for i in range(len(parts))]
     prev, offset = "v0", 0.0
     for i in range(1, len(parts)):
         offset += durations[i - 1] - fade

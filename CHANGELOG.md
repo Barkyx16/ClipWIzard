@@ -37,6 +37,8 @@
 - Videos could be deleted while their clips were still rendering.
 - A double "complete upload" could create two sessions.
 - Color contrast now meets WCAG AA.
+- Montages and clips with an instant replay failed to render on ffmpeg 7 (the version in the Docker image):
+  the transition filter needs an explicit frame rate.
 
 ### Under the hood
 - About 25% faster analysis by skipping non-reference frames.
