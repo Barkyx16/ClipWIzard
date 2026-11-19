@@ -161,7 +161,9 @@ and memory use stays flat regardless of length.
 
 | Path | Purpose |
 | --- | --- |
-| `backend/app/main.py` | FastAPI routes, media access control, SPA hosting |
+| `backend/app/main.py` | App setup: lifespan, middleware, health check, SPA hosting |
+| `backend/app/routes/` | API routes: `videos`, `uploads`, `clips`, `share`, `media` |
+| `backend/app/schemas.py` · `serializers.py` · `guards.py` | Request models, response shapes, ownership checks and limits |
 | `backend/app/pipeline.py` | Analysis, import and render jobs |
 | `backend/app/workspace.py` | Anonymous private workspaces |
 | `backend/app/analysis/signals.py` | Audio and motion feature extraction |

@@ -117,6 +117,11 @@ def load_dotenv() -> None:
         return
 
 
+# Built web UI (served by the backend in production / Docker).
+FRONTEND_DIR = Path(
+    os.environ.get("CLIPWIZARD_FRONTEND_DIR", Path(__file__).resolve().parents[2] / "frontend" / "dist")
+)
+
 _settings: Settings | None = None
 
 

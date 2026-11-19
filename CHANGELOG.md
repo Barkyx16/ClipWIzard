@@ -44,6 +44,7 @@
 - About 25% faster analysis by skipping non-reference frames.
 - Every UI color and font lives in `frontend/src/theme.css` for easy rebranding.
 - CI runs the backend tests, the frontend format/type-check/build, and Playwright end-to-end tests.
+- The API is split from one `main.py` into route modules (`backend/app/routes/`); the endpoints are unchanged.
 
 ## 0.1.0
 
